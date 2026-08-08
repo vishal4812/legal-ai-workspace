@@ -1,0 +1,1 @@
+"""LEGAL MASTER backend application."""
