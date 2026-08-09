@@ -1,6 +1,6 @@
 # LEGAL MASTER
 
-LEGAL MASTER is a local/private legal document workspace and the foundation for a document RAG platform. This repository now contains Phase 2: secure user authentication on top of the Phase 1 application shell and infrastructure. Workspaces, cases, uploads, extraction, OCR, embeddings, retrieval, and chat are intentionally not implemented yet.
+LEGAL MASTER is a local/private legal document workspace and the foundation for a document RAG platform. This repository now contains Phase 3: secure multi-tenant workspaces, role-based membership, and workspace-scoped legal cases on top of JWT authentication. Uploads, extraction, OCR, embeddings, retrieval, and chat are intentionally not implemented yet.
 
 ## Architecture
 
@@ -82,7 +82,7 @@ Alembic uses the same `DATABASE_URL` as the application. Apply migrations with:
 make migrate
 ```
 
-After adding or importing a SQLAlchemy model in `backend/app/models/__init__.py`, create a migration with `make migration name=create_users`. Review generated migrations before applying them. Phase 2 creates the `users` and `refresh_tokens` tables.
+After adding or importing a SQLAlchemy model in `backend/app/models/__init__.py`, create a migration with `make migration name=create_users`. Review generated migrations before applying them. Phase 2 creates `users` and `refresh_tokens`; Phase 3 adds `workspaces`, `workspace_members`, and `cases`.
 
 ## Authentication
 
@@ -100,8 +100,16 @@ The cookie is marked Secure outside local/test environments. A future cross-site
 
 ## Configuration and security
 
-Pydantic validates settings at backend startup. `DATABASE_URL` and `JWT_SECRET` are required; `JWT_SECRET` must be at least 32 characters. `.env`, local documents, database/vector data, logs, and model artifacts are ignored by Git. Do not serve document-volume paths through the web server. Future endpoints must authorize workspace and case ownership before storage or vector access and must emit audit events.
+Pydantic validates settings at backend startup. `DATABASE_URL` and `JWT_SECRET` are required; `JWT_SECRET` must be at least 32 characters. `.env`, local documents, database/vector data, logs, and model artifacts are ignored by Git. Do not serve document-volume paths through the web server. Future storage and vector endpoints must reuse the workspace/case authorization boundary and emit audit events.
+
+## Workspace and case retention
+
+Workspace deletion is a soft delete: `is_active` becomes false while ownership and memberships remain available to authorized users. Case deletion is also a soft delete and sets both `is_active = false` and `status = ARCHIVED`. Archived records remain readable to workspace members so later legal-retention and audit features can build on stable historical relationships. Foreign keys use restrictive deletion rather than cascading through legal domain data.
+
+An owner cannot be removed or demoted. Owners may remove any non-owner. Administrators may add users and remove members or viewers, but cannot remove owners/admins or change roles. Ownership transfer is intentionally deferred.
+
+The workspace and case UI is available at `/workspaces`, `/workspaces/:workspaceId`, `/workspaces/:workspaceId/cases`, and `/workspaces/:workspaceId/cases/:caseId`.
 
 ## Roadmap
 
-The next step is Phase 3, workspace and case authorization, followed by the document vault. Extraction, OCR, chunks/embeddings, Qdrant indexing, retrieval, local LLM integration, citations, analysis modes, bitemporal logic, editing, and security hardening should then be implemented in that order.
+The next step is the document vault. Extraction, OCR, chunks/embeddings, Qdrant indexing, retrieval, local LLM integration, citations, analysis modes, bitemporal logic, editing, and security hardening should then be implemented in that order.

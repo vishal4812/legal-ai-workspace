@@ -23,6 +23,14 @@ React UI -> FastAPI API -> application modules -> PostgreSQL
 
 Phase 2 authentication uses Argon2id password hashes and two JWT types. Short-lived access tokens are stateless bearer credentials. Refresh tokens are rotated on every use; their `jti` values are stored in PostgreSQL so logout, expiration, and reuse can be enforced without storing raw token material. Browser refresh tokens use an HttpOnly cookie while access tokens remain in memory.
 
+### Workspace authorization boundary
+
+Phase 3 establishes the tenant chain `User -> Workspace -> WorkspaceMember -> Case`. `get_workspace_access` resolves a workspace only through the authenticated user's membership and returns 404 for non-members. Role dependencies build on that resolved access. `get_case_access` then loads a case by both `case_id` and the authorized `workspace_id`, preventing direct-ID and workspace/case mismatch attacks.
+
+Roles are enums. Owners have full Phase 3 permissions; admins can update workspaces, manage non-admin membership, and manage cases; members can create/update cases; viewers are read-only. Only owners can change roles or archive workspaces. Ownership transfer is not implemented.
+
+Workspaces and cases are soft-deleted for future legal retention. Domain foreign keys use `RESTRICT`; the application does not physically cascade-delete workspaces, memberships, or cases.
+
 ## Current runtime
 
-The API exposes `/health`, `/api/v1`, and registration, login, refresh, logout, and current-user operations under `/api/v1/auth`. PostgreSQL contains the `users` and revocable `refresh_tokens` session tables. Other domain routers remain composition points only; no Phase 3 or later feature is implemented.
+The API exposes `/health`, authentication under `/api/v1/auth`, workspaces and memberships under `/api/v1/workspaces`, and cases nested under `/api/v1/workspaces/{workspace_id}/cases`. PostgreSQL contains users, refresh sessions, workspaces, memberships, and cases. Document, AI, chat, and analysis routers remain later-phase composition points.

@@ -1,4 +1,4 @@
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
 import { useAuth } from "../features/auth";
 
@@ -24,9 +24,9 @@ export function DashboardPage() {
             Sign out
           </button>
         </div>
-        <p className="mt-12 rounded-xl bg-parchment p-5 text-ink/70">
-          Authentication is ready. Workspace functionality will be introduced in the next phase.
-        </p>
+        <Link className="mt-12 block rounded-xl bg-ink p-5 font-semibold text-white" to="/workspaces">
+          Open your legal workspaces →
+        </Link>
       </section>
     </main>
   );

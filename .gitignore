@@ -30,6 +30,8 @@ storage/
 *.db
 *.sqlite*
 models/
+!backend/app/models/
+!backend/app/models/*.py
 qdrant_storage/
 postgres_data/
 redis_data/

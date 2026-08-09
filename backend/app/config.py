@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
+from urllib.parse import urlsplit
 from typing import Literal
 
 from pydantic import Field, SecretStr
@@ -45,6 +46,20 @@ class Settings(BaseSettings):
     @property
     def auth_cookie_secure(self) -> bool:
         return self.environment.casefold() not in {"development", "local", "test"}
+
+    @property
+    def cors_allowed_origins(self) -> list[str]:
+        configured = self.frontend_origin.rstrip("/")
+        origins = {configured}
+        parsed = urlsplit(configured)
+        if (
+            self.environment.casefold() in {"development", "local", "test"}
+            and parsed.scheme in {"http", "https"}
+            and parsed.hostname in {"localhost", "127.0.0.1"}
+        ):
+            port = f":{parsed.port}" if parsed.port is not None else ""
+            origins.update({f"{parsed.scheme}://localhost{port}", f"{parsed.scheme}://127.0.0.1{port}"})
+        return sorted(origins)
 
 
 @lru_cache

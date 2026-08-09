@@ -3,6 +3,7 @@ import { afterEach, expect, test, vi } from "vitest";
 
 import {
   installAuthInterceptors,
+  resolveApiBaseURL,
   setAccessToken,
   setAuthFailureHandler,
 } from "./apiClient";
@@ -30,6 +31,15 @@ function unauthorized(config: InternalAxiosRequestConfig) {
 afterEach(() => {
   setAccessToken(null);
   setAuthFailureHandler(null);
+});
+
+test("uses the browser hostname when no API URL is configured", () => {
+  expect(resolveApiBaseURL(undefined, "127.0.0.1")).toBe("http://127.0.0.1:8000");
+  expect(resolveApiBaseURL("", "localhost")).toBe("http://localhost:8000");
+});
+
+test("uses an explicitly configured API URL", () => {
+  expect(resolveApiBaseURL("https://api.example.com", "localhost")).toBe("https://api.example.com");
 });
 
 test("a 401 refreshes once and retries the original request", async () => {
