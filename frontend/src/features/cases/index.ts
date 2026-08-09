@@ -1,2 +1,2 @@
-// Case feature boundary. Implementation begins with workspace authorization.
-export {};
+export { caseApi } from "./caseApi";
+export type { Case, CaseCreateInput, CaseStatus, CaseUpdateInput } from "./types";

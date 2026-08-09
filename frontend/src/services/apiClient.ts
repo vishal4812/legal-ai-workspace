@@ -2,7 +2,16 @@ import axios, { AxiosHeaders, type AxiosError, type AxiosInstance, type Internal
 
 import type { TokenResponse } from "../features/auth/types";
 
-const baseURL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
+export function resolveApiBaseURL(
+  configuredURL: string | undefined,
+  browserHostname: string,
+): string {
+  const configured = configuredURL?.trim();
+  return configured || `http://${browserHostname}:8000`;
+}
+
+const browserHostname = window.location.hostname || "localhost";
+const baseURL = resolveApiBaseURL(import.meta.env.VITE_API_BASE_URL, browserHostname);
 
 let accessToken: string | null = null;
 let authFailureHandler: (() => void) | null = null;
