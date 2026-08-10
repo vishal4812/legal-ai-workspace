@@ -12,6 +12,7 @@ from app.database import Base
 from app.models.user import utc_now
 
 if TYPE_CHECKING:
+    from app.models.document import Document
     from app.models.user import User
     from app.models.workspace import Workspace
 
@@ -52,3 +53,4 @@ class Case(Base):
 
     workspace: Mapped["Workspace"] = relationship(back_populates="cases")
     creator: Mapped["User"] = relationship(back_populates="created_cases", foreign_keys=[created_by])
+    documents: Mapped[list["Document"]] = relationship(back_populates="case")

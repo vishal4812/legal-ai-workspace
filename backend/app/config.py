@@ -39,8 +39,8 @@ class Settings(BaseSettings):
     jwt_refresh_token_expire_days: int = Field(default=7, gt=0)
     auth_refresh_cookie_name: str = "legal_master_refresh"
 
-    storage_path: Path = Path("./data/documents")
-    max_upload_size_mb: int = Field(default=25, gt=0)
+    document_storage_path: Path = Path("./data/documents")
+    document_max_size_bytes: int = Field(default=50 * 1024 * 1024, gt=0)
     frontend_origin: str = "http://localhost:5173"
 
     @property

@@ -27,6 +27,8 @@ frontend/coverage/
 data/
 uploads/
 storage/
+!backend/app/storage/
+!backend/app/storage/**
 *.db
 *.sqlite*
 models/

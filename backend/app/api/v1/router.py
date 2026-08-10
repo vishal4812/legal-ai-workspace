@@ -14,6 +14,6 @@ async def api_root() -> ApiRootResponse:
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
 api_router.include_router(workspaces.router, prefix="/workspaces", tags=["workspaces"])
 api_router.include_router(cases.router, tags=["cases"])
-api_router.include_router(documents.router, prefix="/documents", tags=["documents"])
+api_router.include_router(documents.router, tags=["documents"])
 api_router.include_router(chat.router, prefix="/chat", tags=["chat"])
 api_router.include_router(analysis.router, prefix="/analysis", tags=["analysis"])

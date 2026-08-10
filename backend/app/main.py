@@ -13,6 +13,7 @@ from app.config import Settings, get_settings
 from app.database import Database
 from app.logging import configure_logging
 from app.services.errors import DomainError
+from app.storage.local import LocalStorageProvider
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -34,6 +35,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lifespan=lifespan,
     )
     application.state.settings = resolved_settings
+    application.state.document_storage = LocalStorageProvider(
+        resolved_settings.document_storage_path
+    )
     application.add_middleware(
         CORSMiddleware,
         allow_origins=resolved_settings.cors_allowed_origins,
