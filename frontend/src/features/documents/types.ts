@@ -17,3 +17,22 @@ export interface Document {
 export type DocumentUploadResponse = Document;
 
 export type UploadProgressHandler = (percentage: number) => void;
+
+export type ExtractionStatus = "PENDING" | "PROCESSING" | "COMPLETED" | "FAILED";
+
+export interface DocumentExtraction {
+  id: string;
+  document_id: string;
+  extractor_type: string;
+  extractor_version: string;
+  status: ExtractionStatus;
+  text_content: string;
+  character_count: number;
+  page_count: number | null;
+  source_sha256_hash: string;
+  extracted_at: string | null;
+  error_code: string | null;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+}

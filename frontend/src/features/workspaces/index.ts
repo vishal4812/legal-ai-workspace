@@ -1,5 +1,6 @@
 export {
   canArchiveDocuments,
+  canExtractDocumentText,
   canArchiveCases,
   canChangeMemberRoles,
   canCreateOrEditCases,

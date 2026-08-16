@@ -1,7 +1,10 @@
 export { documentApi } from "./documentApi";
+export { extractionApi } from "./extractionApi";
 export type {
-  Document,
-  DocumentStatus,
-  DocumentUploadResponse,
-  UploadProgressHandler,
+    Document,
+    DocumentExtraction,
+    DocumentStatus,
+    DocumentUploadResponse,
+    ExtractionStatus,
+    UploadProgressHandler,
 } from "./types";

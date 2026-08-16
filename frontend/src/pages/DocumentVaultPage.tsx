@@ -3,9 +3,15 @@ import { useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import { AppHeader } from "../components/AppHeader";
-import { documentApi, type Document as VaultDocument } from "../features/documents";
+import {
+  documentApi,
+  extractionApi,
+  type Document as VaultDocument,
+  type ExtractionStatus,
+} from "../features/documents";
 import {
   canArchiveDocuments,
+  canExtractDocumentText,
   canUploadDocuments,
   workspaceApi,
 } from "../features/workspaces";
@@ -43,6 +49,96 @@ function saveBlob(blob: Blob, filename: string) {
   anchor.download = filename;
   anchor.click();
   URL.revokeObjectURL(url);
+}
+
+const EXTRACTION_LABELS: Record<ExtractionStatus, string> = {
+  PENDING: "Processing",
+  PROCESSING: "Processing",
+  COMPLETED: "Extracted",
+  FAILED: "Extraction failed",
+};
+
+interface ExtractionControlsProps {
+  workspaceId: string;
+  caseId: string;
+  document: VaultDocument;
+  canExtract: boolean;
+}
+
+function ExtractionControls({
+  workspaceId,
+  caseId,
+  document,
+  canExtract,
+}: ExtractionControlsProps) {
+  const queryClient = useQueryClient();
+  const queryKey = [
+    "workspace",
+    workspaceId,
+    "case",
+    caseId,
+    "document",
+    document.id,
+    "extraction",
+  ];
+  const extraction = useQuery({
+    queryKey,
+    queryFn: () => extractionApi.getOrNull(workspaceId, caseId, document.id),
+    refetchInterval: (query) =>
+      query.state.data?.status === "PENDING" || query.state.data?.status === "PROCESSING"
+        ? 2_000
+        : false,
+  });
+  const trigger = useMutation({
+    mutationFn: () => extractionApi.extract(workspaceId, caseId, document.id),
+    onSuccess: (result) => queryClient.setQueryData(queryKey, result),
+    onError: () => void extraction.refetch(),
+  });
+  const persistedStatus = extraction.data?.status;
+  const visibleStatus = trigger.isPending ? "PROCESSING" : persistedStatus;
+  const isInProgress = visibleStatus === "PENDING" || visibleStatus === "PROCESSING";
+
+  return (
+    <div className="mt-4 border-t border-ink/10 pt-4">
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="text-sm font-semibold">
+          Text: {visibleStatus ? EXTRACTION_LABELS[visibleStatus] : "Not extracted"}
+        </span>
+        {extraction.data && (
+          <Link
+            className="text-sm font-semibold text-brass underline"
+            to={`/workspaces/${workspaceId}/cases/${caseId}/documents/${document.id}/extraction`}
+          >
+            View extraction
+          </Link>
+        )}
+        {canExtract && !extraction.isLoading && persistedStatus !== "COMPLETED" && (
+          <button
+            className="rounded-lg border border-brass px-4 py-2 text-sm font-semibold text-brass disabled:opacity-60"
+            disabled={trigger.isPending || isInProgress}
+            onClick={() => trigger.mutate()}
+          >
+            {trigger.isPending
+              ? "Extracting…"
+              : persistedStatus === "FAILED"
+                ? "Retry extraction"
+                : "Extract text"}
+          </button>
+        )}
+      </div>
+      {extraction.isLoading && <p className="mt-2 text-sm text-ink/60">Loading extraction status…</p>}
+      {extraction.error && (
+        <p className="mt-2 text-sm text-red-700" role="alert">
+          {apiErrorMessage(extraction.error)}
+        </p>
+      )}
+      {trigger.error && (
+        <p className="mt-2 text-sm text-red-700" role="alert">
+          {apiErrorMessage(trigger.error)}
+        </p>
+      )}
+    </div>
+  );
 }
 
 export function DocumentVaultPage() {
@@ -101,6 +197,7 @@ export function DocumentVaultPage() {
   const role = workspace.data?.current_user_role;
   const canUpload = role ? canUploadDocuments(role) : false;
   const canArchive = role ? canArchiveDocuments(role) : false;
+  const canExtract = role ? canExtractDocumentText(role) : false;
 
   function selectFile(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0] ?? null;
@@ -235,6 +332,12 @@ export function DocumentVaultPage() {
                     </button>
                   )}
                 </div>
+                <ExtractionControls
+                  workspaceId={workspaceId}
+                  caseId={caseId}
+                  document={document}
+                  canExtract={canExtract}
+                />
               </article>
             ))}
           </div>

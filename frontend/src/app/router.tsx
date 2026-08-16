@@ -5,6 +5,7 @@ import { CaseDetailPage } from "../pages/CaseDetailPage";
 import { CasesPage } from "../pages/CasesPage";
 import { DashboardPage } from "../pages/DashboardPage";
 import { DocumentVaultPage } from "../pages/DocumentVaultPage";
+import { DocumentExtractionPage } from "../pages/DocumentExtractionPage";
 import { LoginPage } from "../pages/LoginPage";
 import { NotFoundPage } from "../pages/NotFoundPage";
 import { RegisterPage } from "../pages/RegisterPage";
@@ -26,6 +27,10 @@ export const appRoutes: RouteObject[] = [
       {
         path: "/workspaces/:workspaceId/cases/:caseId/documents",
         element: <DocumentVaultPage />,
+      },
+      {
+        path: "/workspaces/:workspaceId/cases/:caseId/documents/:documentId/extraction",
+        element: <DocumentExtractionPage />,
       },
     ],
   },
