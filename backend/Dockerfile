@@ -20,7 +20,7 @@ CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload
 
 FROM base AS production
 RUN useradd --create-home --uid 10001 appuser \
-    && mkdir -p /data/documents \
-    && chown -R appuser:appuser /app /data/documents
+    && mkdir -p /data/documents /data/models \
+    && chown -R appuser:appuser /app /data/documents /data/models
 USER appuser
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

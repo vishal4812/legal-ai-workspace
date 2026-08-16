@@ -36,9 +36,6 @@ services:
     image: qdrant/qdrant:v1.18.2
     environment:
       QDRANT__TELEMETRY_DISABLED: "true"
-    ports:
-      - "127.0.0.1:6333:6333"
-      - "127.0.0.1:6334:6334"
     volumes:
       - qdrant_data:/qdrant/storage
     healthcheck:
@@ -57,9 +54,20 @@ services:
       REDIS_URL: redis://redis:6379/0
       QDRANT_URL: http://qdrant:6333
       QDRANT_API_KEY: ${QDRANT_API_KEY:-}
+      QDRANT_COLLECTION_NAME: ${QDRANT_COLLECTION_NAME:-legal_master_document_chunks}
+      QDRANT_TIMEOUT_SECONDS: ${QDRANT_TIMEOUT_SECONDS:-30}
+      QDRANT_UPSERT_BATCH_SIZE: ${QDRANT_UPSERT_BATCH_SIZE:-64}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2}
-      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-nomic-embed-text}
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-local}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-jinaai/jina-embeddings-v2-small-en}
+      EMBEDDING_DIMENSION: ${EMBEDDING_DIMENSION:-512}
+      EMBEDDING_CACHE_PATH: /data/models
+      EMBEDDING_BATCH_SIZE: ${EMBEDDING_BATCH_SIZE:-32}
+      EMBEDDING_MAX_CONCURRENCY: ${EMBEDDING_MAX_CONCURRENCY:-1}
+      CHUNK_SIZE: ${CHUNK_SIZE:-800}
+      CHUNK_OVERLAP: ${CHUNK_OVERLAP:-120}
+      CHUNK_MIN_SIZE: ${CHUNK_MIN_SIZE:-100}
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
       JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
       JWT_ACCESS_TOKEN_EXPIRE_MINUTES: ${JWT_ACCESS_TOKEN_EXPIRE_MINUTES:-30}
@@ -80,6 +88,7 @@ services:
     volumes:
       - ./backend:/app
       - document_storage:/data/documents
+      - embedding_model_cache:/data/models
     depends_on:
       postgres:
         condition: service_healthy
@@ -120,4 +129,5 @@ volumes:
   redis_data:
   qdrant_data:
   document_storage:
+  embedding_model_cache:
   frontend_node_modules:

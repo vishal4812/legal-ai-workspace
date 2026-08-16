@@ -13,6 +13,8 @@ python-docx==1.2.0
 python-json-logger==4.1.0
 pwdlib[argon2]==0.3.0
 PyJWT==2.13.0
+fastembed==0.8.0
+qdrant-client==1.19.0
 SQLAlchemy==2.0.51
 uvicorn[standard]==0.52.1
 

@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 
 import { AuthContext, type AuthContextValue } from "../features/auth/AuthContext";
 import { caseApi } from "../features/cases";
-import { documentApi, extractionApi } from "../features/documents";
+import { documentApi, extractionApi, indexingApi, searchApi } from "../features/documents";
 import { workspaceApi } from "../features/workspaces";
 import { DocumentVaultPage } from "./DocumentVaultPage";
 
@@ -35,6 +35,18 @@ vi.mock("../features/documents/extractionApi", () => ({
     getOrNull: vi.fn(),
     extract: vi.fn(),
   },
+}));
+
+vi.mock("../features/documents/indexingApi", () => ({
+  indexingApi: {
+    get: vi.fn(),
+    getOrNull: vi.fn(),
+    index: vi.fn(),
+  },
+}));
+
+vi.mock("../features/documents/searchApi", () => ({
+  searchApi: { search: vi.fn() },
 }));
 
 const authValue: AuthContextValue = {
@@ -120,6 +132,7 @@ beforeEach(() => {
   vi.mocked(caseApi.get).mockResolvedValue(legalCase);
   vi.mocked(documentApi.list).mockResolvedValue([document]);
   vi.mocked(extractionApi.getOrNull).mockResolvedValue(null);
+  vi.mocked(indexingApi.getOrNull).mockResolvedValue(null);
 });
 
 describe("Document Vault page", () => {
@@ -130,6 +143,8 @@ describe("Document Vault page", () => {
     expect(screen.getByText(document.original_filename)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Download" })).toBeInTheDocument();
     expect(await screen.findByText("Text: Not extracted")).toBeInTheDocument();
+    expect(await screen.findByText("Search index: Not indexed")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Semantic Search" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Extract text" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Upload document" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Archive" })).not.toBeInTheDocument();
@@ -177,6 +192,125 @@ describe("Document Vault page", () => {
       "href",
       "/workspaces/workspace-1/cases/case-1/documents/document-1/extraction",
     );
+  });
+
+  test("authorized member can index completed extraction and sees completed metadata", async () => {
+    vi.mocked(workspaceApi.get).mockResolvedValue({
+      ...workspace,
+      current_user_role: "MEMBER",
+    });
+    vi.mocked(extractionApi.getOrNull).mockResolvedValue({
+      id: "extraction-1",
+      document_id: document.id,
+      extractor_type: "pymupdf",
+      extractor_version: "1.28.2",
+      status: "COMPLETED",
+      text_content: "[Page 1]\n\nAgreement",
+      character_count: 21,
+      page_count: 1,
+      parser_metadata: { method: "direct_text" },
+      source_sha256_hash: document.sha256_hash,
+      extracted_at: "2026-08-09T01:00:00Z",
+      error_code: null,
+      error_message: null,
+      created_at: "2026-08-09T01:00:00Z",
+      updated_at: "2026-08-09T01:00:00Z",
+    });
+    render(<DocumentVaultPage />, { wrapper: Providers });
+    expect(await screen.findByRole("button", { name: "Index for search" })).toBeInTheDocument();
+
+    vi.mocked(indexingApi.index).mockResolvedValue({
+      id: "index-1",
+      document_id: document.id,
+      status: "COMPLETED",
+      embedding_provider: "local",
+      embedding_model: "jinaai/jina-embeddings-v2-small-en",
+      embedding_dimension: 512,
+      indexed_chunk_count: 3,
+      source_extraction_sha256: "b".repeat(64),
+      qdrant_collection: "legal_master_document_chunks",
+      error_code: null,
+      error_message: null,
+      started_at: "2026-08-09T01:01:00Z",
+      completed_at: "2026-08-09T01:02:00Z",
+      created_at: "2026-08-09T01:01:00Z",
+      updated_at: "2026-08-09T01:02:00Z",
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Index for search" }));
+    expect(await screen.findByText(/3 chunks.*512 dimensions/)).toBeInTheDocument();
+  });
+
+  test("viewer can search ranked source chunks but has no indexing control", async () => {
+    vi.mocked(searchApi.search).mockResolvedValue({
+      results: [
+        {
+          chunk_id: "chunk-1",
+          document_id: document.id,
+          case_id: legalCase.id,
+          chunk_index: 0,
+          content: "The termination clause requires written notice.",
+          score: 0.8765,
+          page_start: 2,
+          page_end: 3,
+          metadata: {},
+        },
+      ],
+    });
+    render(<DocumentVaultPage />, { wrapper: Providers });
+    const input = await screen.findByLabelText("Search documents");
+    fireEvent.change(input, { target: { value: "termination clause" } });
+    fireEvent.click(screen.getByRole("button", { name: "Search" }));
+
+    expect(await screen.findByRole("heading", { name: "Semantic Search Results" })).toBeInTheDocument();
+    expect(screen.getByText("The termination clause requires written notice.")).toBeInTheDocument();
+    expect(screen.getByText(/Page 2–3/)).toHaveTextContent("Similarity 0.876");
+    expect(searchApi.search).toHaveBeenCalledWith("workspace-1", "termination clause", "case-1");
+    expect(screen.queryByRole("button", { name: /Index for search|Retry indexing/ })).not.toBeInTheDocument();
+  });
+
+  test("authorized member sees a safe failed state and retry control", async () => {
+    vi.mocked(workspaceApi.get).mockResolvedValue({
+      ...workspace,
+      current_user_role: "MEMBER",
+    });
+    vi.mocked(extractionApi.getOrNull).mockResolvedValue({
+      id: "extraction-1",
+      document_id: document.id,
+      extractor_type: "pymupdf",
+      extractor_version: "1.28.2",
+      status: "COMPLETED",
+      text_content: "Agreement",
+      character_count: 9,
+      page_count: 1,
+      parser_metadata: { method: "direct_text" },
+      source_sha256_hash: document.sha256_hash,
+      extracted_at: "2026-08-09T01:00:00Z",
+      error_code: null,
+      error_message: null,
+      created_at: "2026-08-09T01:00:00Z",
+      updated_at: "2026-08-09T01:00:00Z",
+    });
+    vi.mocked(indexingApi.getOrNull).mockResolvedValue({
+      id: "index-1",
+      document_id: document.id,
+      status: "FAILED",
+      embedding_provider: "local",
+      embedding_model: "jinaai/jina-embeddings-v2-small-en",
+      embedding_dimension: 512,
+      indexed_chunk_count: 0,
+      source_extraction_sha256: "b".repeat(64),
+      qdrant_collection: "legal_master_document_chunks",
+      error_code: "QDRANT_INDEXING_FAILED",
+      error_message: "The document vector index could not be updated",
+      started_at: "2026-08-09T01:01:00Z",
+      completed_at: null,
+      created_at: "2026-08-09T01:01:00Z",
+      updated_at: "2026-08-09T01:02:00Z",
+    });
+    render(<DocumentVaultPage />, { wrapper: Providers });
+    expect(await screen.findByText("Search index: Index failed")).toBeInTheDocument();
+    expect(screen.getByText("The document vector index could not be updated")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry indexing" })).toBeInTheDocument();
   });
 
   test("client validation rejects an unsupported extension before upload", async () => {
