@@ -5,6 +5,7 @@ import {
   canChangeMemberRoles,
   canCreateOrEditCases,
   canExtractDocumentText,
+  canIndexDocuments,
   canManageMembers,
   canUpdateWorkspace,
 } from "./permissions";
@@ -17,6 +18,7 @@ describe("workspace role permissions", () => {
     expect(canCreateOrEditCases("OWNER")).toBe(true);
     expect(canArchiveCases("OWNER")).toBe(true);
     expect(canExtractDocumentText("OWNER")).toBe(true);
+    expect(canIndexDocuments("OWNER")).toBe(true);
   });
 
   test("admin cannot transfer roles but can manage members and cases", () => {
@@ -26,6 +28,7 @@ describe("workspace role permissions", () => {
     expect(canCreateOrEditCases("ADMIN")).toBe(true);
     expect(canArchiveCases("ADMIN")).toBe(true);
     expect(canExtractDocumentText("ADMIN")).toBe(true);
+    expect(canIndexDocuments("ADMIN")).toBe(true);
   });
 
   test("member can create and edit cases only", () => {
@@ -34,6 +37,7 @@ describe("workspace role permissions", () => {
     expect(canCreateOrEditCases("MEMBER")).toBe(true);
     expect(canArchiveCases("MEMBER")).toBe(false);
     expect(canExtractDocumentText("MEMBER")).toBe(true);
+    expect(canIndexDocuments("MEMBER")).toBe(true);
   });
 
   test("viewer receives read-only UI permissions", () => {
@@ -43,5 +47,6 @@ describe("workspace role permissions", () => {
     expect(canCreateOrEditCases("VIEWER")).toBe(false);
     expect(canArchiveCases("VIEWER")).toBe(false);
     expect(canExtractDocumentText("VIEWER")).toBe(false);
+    expect(canIndexDocuments("VIEWER")).toBe(false);
   });
 });

@@ -37,3 +37,39 @@ export interface DocumentExtraction {
   created_at: string;
   updated_at: string;
 }
+
+export type IndexingStatus = "PENDING" | "PROCESSING" | "COMPLETED" | "FAILED";
+
+export interface DocumentIndex {
+  id: string;
+  document_id: string;
+  status: IndexingStatus;
+  embedding_provider: string;
+  embedding_model: string;
+  embedding_dimension: number;
+  indexed_chunk_count: number;
+  source_extraction_sha256: string;
+  qdrant_collection: string;
+  error_code: string | null;
+  error_message: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SemanticSearchResult {
+  chunk_id: string;
+  document_id: string;
+  case_id: string;
+  chunk_index: number;
+  content: string;
+  score: number;
+  page_start: number | null;
+  page_end: number | null;
+  metadata: Record<string, unknown>;
+}
+
+export interface SemanticSearchResponse {
+  results: SemanticSearchResult[];
+}

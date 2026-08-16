@@ -3,20 +3,18 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
-from app.documents.extractors.base import ExtractedDocument
-
-
 @dataclass(frozen=True, slots=True)
 class Chunk:
     index: int
-    text: str
-    page_from: int
-    page_to: int
+    content: str
+    token_count: int
+    page_start: int | None
+    page_end: int | None
 
 
 class Chunker(ABC):
     """Page-aware document chunking boundary."""
 
     @abstractmethod
-    def chunk(self, document: ExtractedDocument) -> list[Chunk]:
-        """Create ordered chunks with page ranges."""
+    def chunk(self, text: str) -> list[Chunk]:
+        """Create deterministic ordered chunks from normalized extraction text."""

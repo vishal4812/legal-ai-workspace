@@ -6,12 +6,16 @@ import { AppHeader } from "../components/AppHeader";
 import {
   documentApi,
   extractionApi,
+  indexingApi,
+  searchApi,
   type Document as VaultDocument,
   type ExtractionStatus,
+  type IndexingStatus,
 } from "../features/documents";
 import {
   canArchiveDocuments,
   canExtractDocumentText,
+  canIndexDocuments,
   canUploadDocuments,
   workspaceApi,
 } from "../features/workspaces";
@@ -56,6 +60,13 @@ const EXTRACTION_LABELS: Record<ExtractionStatus, string> = {
   PROCESSING: "Processing",
   COMPLETED: "Extracted",
   FAILED: "Extraction failed",
+};
+
+const INDEX_LABELS: Record<IndexingStatus, string> = {
+  PENDING: "Indexing",
+  PROCESSING: "Indexing",
+  COMPLETED: "Indexed",
+  FAILED: "Index failed",
 };
 
 interface ExtractionControlsProps {
@@ -141,6 +152,158 @@ function ExtractionControls({
   );
 }
 
+function IndexingControls({
+  workspaceId,
+  caseId,
+  document,
+  canIndex,
+}: {
+  workspaceId: string;
+  caseId: string;
+  document: VaultDocument;
+  canIndex: boolean;
+}) {
+  const queryClient = useQueryClient();
+  const baseKey = ["workspace", workspaceId, "case", caseId, "document", document.id];
+  const indexKey = [...baseKey, "index"];
+  const extraction = useQuery({
+    queryKey: [...baseKey, "extraction"],
+    queryFn: () => extractionApi.getOrNull(workspaceId, caseId, document.id),
+  });
+  const documentIndex = useQuery({
+    queryKey: indexKey,
+    queryFn: () => indexingApi.getOrNull(workspaceId, caseId, document.id),
+    refetchInterval: (query) =>
+      query.state.data?.status === "PENDING" || query.state.data?.status === "PROCESSING"
+        ? 2_000
+        : false,
+  });
+  const trigger = useMutation({
+    mutationFn: () => indexingApi.index(workspaceId, caseId, document.id),
+    onSuccess: (result) => queryClient.setQueryData(indexKey, result),
+    onError: () => void documentIndex.refetch(),
+  });
+  const persistedStatus = documentIndex.data?.status;
+  const visibleStatus = trigger.isPending ? "PROCESSING" : persistedStatus;
+  const inProgress = visibleStatus === "PENDING" || visibleStatus === "PROCESSING";
+  const canTrigger = canIndex && extraction.data?.status === "COMPLETED";
+
+  return (
+    <div className="mt-4 border-t border-ink/10 pt-4">
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="text-sm font-semibold">
+          Search index: {visibleStatus ? INDEX_LABELS[visibleStatus] : "Not indexed"}
+        </span>
+        {documentIndex.data?.status === "COMPLETED" && (
+          <span className="text-sm text-ink/60">
+            {documentIndex.data.indexed_chunk_count} chunks · {documentIndex.data.embedding_model} · {documentIndex.data.embedding_dimension} dimensions
+          </span>
+        )}
+        {canTrigger && persistedStatus !== "COMPLETED" && (
+          <button
+            className="rounded-lg border border-brass px-4 py-2 text-sm font-semibold text-brass disabled:opacity-60"
+            disabled={trigger.isPending || inProgress}
+            onClick={() => trigger.mutate()}
+          >
+            {trigger.isPending
+              ? "Indexing…"
+              : persistedStatus === "FAILED"
+                ? "Retry indexing"
+                : "Index for search"}
+          </button>
+        )}
+      </div>
+      {documentIndex.data?.status === "FAILED" && (
+        <p className="mt-2 text-sm text-red-700" role="alert">
+          {documentIndex.data.error_message ?? "The document could not be indexed."}
+        </p>
+      )}
+      {(documentIndex.error || trigger.error) && (
+        <p className="mt-2 text-sm text-red-700" role="alert">
+          {apiErrorMessage(documentIndex.error ?? trigger.error)}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function SemanticSearch({
+  workspaceId,
+  caseId,
+  documents,
+}: {
+  workspaceId: string;
+  caseId: string;
+  documents: VaultDocument[];
+}) {
+  const [query, setQuery] = useState("");
+  const search = useMutation({
+    mutationFn: () => searchApi.search(workspaceId, query.trim(), caseId),
+  });
+  const names = new Map(documents.map((document) => [document.id, document.original_filename]));
+
+  return (
+    <section className="mt-8 rounded-xl border border-ink/10 bg-white p-6 shadow-sm">
+      <h2 className="text-2xl font-bold">Semantic Search</h2>
+      <p className="mt-2 text-sm text-ink/60">
+        Ranked source text from indexed documents in this case. No answer or legal advice is generated.
+      </p>
+      <form
+        className="mt-5 flex flex-col gap-3 sm:flex-row"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (query.trim()) search.mutate();
+        }}
+      >
+        <label className="flex-1 text-sm font-medium">
+          Search documents
+          <input
+            className="mt-2 w-full rounded-lg border border-ink/20 px-3 py-2"
+            value={query}
+            maxLength={2_000}
+            onChange={(event) => setQuery(event.target.value)}
+          />
+        </label>
+        <button
+          className="self-end rounded-lg bg-ink px-5 py-2 font-semibold text-white disabled:opacity-60"
+          disabled={!query.trim() || search.isPending}
+        >
+          {search.isPending ? "Searching…" : "Search"}
+        </button>
+      </form>
+      {search.error && (
+        <p className="mt-4 rounded-lg bg-red-50 p-4 text-red-700" role="alert">
+          {apiErrorMessage(search.error)}
+        </p>
+      )}
+      {search.data && (
+        <div className="mt-6">
+          <h3 className="text-lg font-bold">Semantic Search Results</h3>
+          {search.data.results.length === 0 ? (
+            <p className="mt-3 text-ink/60">No indexed text matched this query.</p>
+          ) : (
+            <ol className="mt-4 space-y-4">
+              {search.data.results.map((result) => (
+                <li className="rounded-lg border border-ink/10 p-4" key={result.chunk_id}>
+                  <p className="font-semibold">{names.get(result.document_id) ?? "Document"}</p>
+                  <p className="mt-1 text-xs text-ink/60">
+                    {result.page_start
+                      ? `Page ${result.page_start}${result.page_end && result.page_end !== result.page_start ? `–${result.page_end}` : ""}`
+                      : `Chunk ${result.chunk_index + 1}`} · Similarity {result.score.toFixed(3)}
+                  </p>
+                  <pre className="mt-3 whitespace-pre-wrap break-words font-mono text-sm leading-6">
+                    {result.content}
+                  </pre>
+                </li>
+              ))}
+            </ol>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
 export function DocumentVaultPage() {
   const { workspaceId = "", caseId = "" } = useParams();
   const queryClient = useQueryClient();
@@ -198,6 +361,7 @@ export function DocumentVaultPage() {
   const canUpload = role ? canUploadDocuments(role) : false;
   const canArchive = role ? canArchiveDocuments(role) : false;
   const canExtract = role ? canExtractDocumentText(role) : false;
+  const canIndex = role ? canIndexDocuments(role) : false;
 
   function selectFile(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0] ?? null;
@@ -284,6 +448,12 @@ export function DocumentVaultPage() {
           </form>
         )}
 
+        <SemanticSearch
+          workspaceId={workspaceId}
+          caseId={caseId}
+          documents={documents.data ?? []}
+        />
+
         <section className="mt-8">
           <h2 className="text-2xl font-bold">Documents</h2>
           {documents.isLoading && <p className="mt-5 text-ink/60">Loading documents…</p>}
@@ -337,6 +507,12 @@ export function DocumentVaultPage() {
                   caseId={caseId}
                   document={document}
                   canExtract={canExtract}
+                />
+                <IndexingControls
+                  workspaceId={workspaceId}
+                  caseId={caseId}
+                  document={document}
+                  canIndex={canIndex}
                 />
               </article>
             ))}

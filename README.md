@@ -1,10 +1,10 @@
 # LEGAL MASTER
 
-LEGAL MASTER is a local/private legal document workspace. This repository contains Phase 6: bounded local OCR for scanned and mixed PDFs, added to deterministic PDF/DOCX extraction, JWT authentication, multi-tenant workspaces, role-based membership, legal cases, and the secure case-scoped Document Vault. Phase 6 implements local OCR only; embeddings, chunking, Qdrant indexing, RAG, LLM APIs, and chat are not implemented.
+LEGAL MASTER is a local/private legal document workspace. This repository contains Phase 7: deterministic legal-text chunking, local CPU embeddings, tenant-filtered Qdrant indexing, and semantic vector retrieval, built on the Phase 6 PDF/DOCX extraction and OCR pipeline. Phase 7 provides ranked source chunks only; RAG answer generation, LLM APIs, chat, legal advice, and legal analysis are not implemented.
 
 ## Architecture
 
-The project is a modular monolith. A React client calls one FastAPI application; PostgreSQL is the transactional store, Redis is reserved for background work, Qdrant is reserved for vectors, and documents use a storage-provider boundary backed by a private Docker volume in local development. LLM and embedding providers are represented by interfaces so core application code will not depend on one vendor.
+The project is a modular monolith. A React client calls one FastAPI application; PostgreSQL is the transactional and canonical chunk store, Redis is reserved for future background work, Qdrant stores tenant-filtered chunk vectors, and documents use a storage-provider boundary backed by a private Docker volume. Local embedding and vector adapters remain behind provider interfaces.
 
 See [docs/architecture.md](docs/architecture.md) for boundaries and dependency rules.
 
@@ -16,6 +16,7 @@ See [docs/architecture.md](docs/architecture.md) for boundaries and dependency r
 - Docker Compose, Redis 7, Qdrant
 - pytest/pytest-asyncio and Vitest/Testing Library
 - PyMuPDF, python-docx, Pillow, pytesseract, and local Tesseract OCR
+- FastEmbed CPU/ONNX local embeddings and Qdrant vector search
 
 ## Repository layout
 
@@ -49,7 +50,7 @@ The UI is available at <http://localhost:5173>, FastAPI at <http://localhost:800
 
 ## Run services on the host
 
-Start only infrastructure with `docker compose up -d postgres redis qdrant`. If the backend runs on the host, change service hostnames in `.env` to `localhost` (for example, `postgres` to `localhost`). Then:
+Start only infrastructure with `docker compose up -d postgres redis qdrant`. If the backend runs on the host, change PostgreSQL/Redis service hostnames in `.env` to `localhost`. Phase 7 intentionally does not publish Qdrant to the host; host-only backend development therefore needs an explicit local-only Compose override for `127.0.0.1:6333:6333` or a separately secured local Qdrant. Never publish it on a public interface. Then:
 
 ```bash
 python -m venv backend/.venv
@@ -82,7 +83,7 @@ Alembic uses the same `DATABASE_URL` as the application. Apply migrations with:
 make migrate
 ```
 
-After adding or importing a SQLAlchemy model in `backend/app/models/__init__.py`, create a migration with `make migration name=create_users`. Review generated migrations before applying them. Phase 2 creates `users` and `refresh_tokens`; Phase 3 adds `workspaces`, `workspace_members`, and `cases`; Phase 4 adds `documents` and the `document_status` enum; Phase 5 adds `document_extractions` and the `extraction_status` enum; Phase 6 adds structured `parser_metadata` to that same extraction row.
+After adding or importing a SQLAlchemy model in `backend/app/models/__init__.py`, create a migration with `make migration name=create_users`. Review generated migrations before applying them. Phase 2 creates `users` and `refresh_tokens`; Phase 3 adds workspaces/cases; Phase 4 adds documents; Phase 5 adds document extractions; Phase 6 adds structured OCR provenance; Phase 7 migration `0006_document_chunking_and_indexing.py` adds `document_chunks`, one `document_indexes` row per document, and the `indexing_status` enum.
 
 ## Authentication
 
@@ -119,6 +120,16 @@ Pydantic validates settings at backend startup. `DATABASE_URL` and `JWT_SECRET` 
 - `OCR_MAX_CONCURRENCY=1` bounds simultaneous Tesseract processes in this synchronous MVP.
 
 The backend image installs Debian's `tesseract-ocr` package (English plus orientation/script detection in the current image). Verify a built image with `docker compose run --rm --no-deps backend tesseract --version` and `docker compose run --rm --no-deps backend tesseract --list-langs`.
+
+### Local indexing configuration
+
+- `CHUNK_SIZE=800`, `CHUNK_OVERLAP=120`, and `CHUNK_MIN_SIZE=100` count deterministic non-whitespace lexemes. The selected model accepts substantially more than 800 model tokens, preventing silent truncation of default chunks.
+- `EMBEDDING_PROVIDER=local` is the only Phase 7 provider. `EMBEDDING_MODEL=jinaai/jina-embeddings-v2-small-en` runs through FastEmbed/ONNX on CPU and produces 512-dimensional vectors. `EMBEDDING_DIMENSION=512` is checked against FastEmbed model metadata and every emitted vector.
+- `EMBEDDING_BATCH_SIZE=32` and `EMBEDDING_MAX_CONCURRENCY=1` bound inference. `QDRANT_UPSERT_BATCH_SIZE=64` bounds vector writes.
+- `EMBEDDING_CACHE_PATH=/data/models` uses a backend-only named Docker volume. The first index/search downloads the approximately 120 MiB model; later requests and container recreations reuse the cache. No model binary is committed or exposed by the frontend.
+- `QDRANT_COLLECTION_NAME=legal_master_document_chunks` and `QDRANT_TIMEOUT_SECONDS=30` configure the private vector adapter. A missing collection is created with cosine distance and the provider dimension. An incompatible existing collection fails safely and is never destroyed or recreated automatically.
+
+Qdrant has no host-published port in Docker Compose. Only services on the private Compose network can reach it, and the application exposes vectors solely through authenticated, workspace-authorized APIs.
 
 ## Secure Document Vault
 
@@ -163,6 +174,37 @@ Stable OCR-related failure codes are `OCR_DISABLED`, `OCR_UNAVAILABLE`, `OCR_LAN
 
 Normalization converts CRLF/CR line endings to LF, removes null characters, collapses horizontal whitespace and excessive blank lines, and trims line edges. It does not summarize, paraphrase, spell-correct, deduplicate, or otherwise alter legal wording, punctuation, or numbers. Extracted text is read-only in the UI at `/workspaces/:workspaceId/cases/:caseId/documents/:documentId/extraction`.
 
+## Deterministic indexing and semantic search
+
+Phase 7 extends only completed, current extractions:
+
+```text
+Normalized extraction -> deterministic chunks -> PostgreSQL
+                                      -> local batch embeddings
+                                      -> tenant-tagged Qdrant points
+Authenticated query -> local query embedding -> filtered Qdrant search
+                    -> authorized canonical PostgreSQL chunks
+```
+
+The chunker preserves character content and document order, prefers page/paragraph/sentence boundaries, never splits a word, and uses a 120-lexeme overlap. `[Page N]` markers remain in chunk content when they fall within a chunk, while `page_start`/`page_end` remain queryable metadata. Each chunk stores SHA-256 over its exact persisted UTF-8 content, counts, extraction/document references, and safe source provenance. Canonical text is not duplicated into Qdrant.
+
+Each document has one `document_indexes` lifecycle row: `PENDING -> PROCESSING -> COMPLETED` or `PROCESSING -> FAILED`. A current completed index is returned idempotently. A failed row is reset and reused; changed extraction text causes controlled chunk/vector replacement. PostgreSQL state becomes non-completed before vector replacement, and search returns only chunks whose canonical row, completed index SHA, payload hash, workspace, case, and document all agree. Partial/stale Qdrant points therefore remain unsearchable during failures; no distributed transaction is claimed.
+
+Index API:
+
+- `POST /api/v1/workspaces/{workspace_id}/cases/{case_id}/documents/{document_id}/index`
+- `GET /api/v1/workspaces/{workspace_id}/cases/{case_id}/documents/{document_id}/index`
+
+Search API:
+
+- `POST /api/v1/workspaces/{workspace_id}/search` with `query`, optional `case_id`, and `top_k` from 1–50.
+
+OWNER, ADMIN, and MEMBER may trigger/retry indexing; VIEWER may only view its status. All workspace roles may search. Workspace authorization occurs before query embedding/vector access, case IDs are resolved inside the authorized workspace, and every Qdrant query includes a mandatory `workspace_id` filter. Non-members and nested ID mismatches receive 404. Results are ranked canonical chunks with similarity score and page metadata—not generated answers.
+
+Archived documents remain retained/readable under the existing legal-retention behavior; an already indexed archived document remains searchable by authorized workspace members. Phase 7 does not add deletion or retention cleanup.
+
+Stable provider/indexing errors include `EMBEDDING_MODEL_UNAVAILABLE`, `EMBEDDING_DIMENSION_MISMATCH`, `EMBEDDING_INVALID_VECTOR`, `QDRANT_UNAVAILABLE`, `QDRANT_COLLECTION_INCOMPATIBLE`, `QDRANT_DIMENSION_MISMATCH`, `QDRANT_DISTANCE_MISMATCH`, `QDRANT_INDEXING_FAILED`, `QDRANT_POINT_COUNT_MISMATCH`, and `INDEXING_FAILED`. Responses/logs do not expose vectors, chunk/document text, storage keys, local paths, raw model/Qdrant exceptions, credentials, or tokens.
+
 ## Workspace, case, and document retention
 
 Workspace deletion is a soft delete: `is_active` becomes false while ownership and memberships remain available to authorized users. Case deletion is also a soft delete and sets both `is_active = false` and `status = ARCHIVED`. Archived records remain readable to workspace members so later legal-retention and audit features can build on stable historical relationships. Foreign keys use restrictive deletion rather than cascading through legal domain data.
@@ -175,4 +217,4 @@ The workspace and case UI is available at `/workspaces`, `/workspaces/:workspace
 
 ## Phase boundary
 
-Phase 6 implements local OCR only. RAG is not implemented. Embeddings are not implemented. Chunking is not implemented. Qdrant indexing is not implemented. LLM APIs and AI-generated text are not implemented. Later phases may add those capabilities, but this phase only produces faithful normalized machine-readable text and provenance while preserving the untouched original binary and integrity metadata.
+Phase 7 provides vector retrieval only. It does not implement RAG answer generation, LLM chat, prompt pipelines, citations generated by an LLM, legal advice, legal analysis, summarization, reranking with an LLM, or any paid/cloud AI API. Phase 8 has not started.

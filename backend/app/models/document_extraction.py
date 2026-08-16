@@ -13,6 +13,7 @@ from app.models.user import utc_now
 
 if TYPE_CHECKING:
     from app.models.document import Document
+    from app.models.document_chunk import DocumentChunk
 
 
 class ExtractionStatus(str, Enum):
@@ -66,3 +67,4 @@ class DocumentExtraction(Base):
     )
 
     document: Mapped["Document"] = relationship(back_populates="extraction")
+    chunks: Mapped[list["DocumentChunk"]] = relationship(back_populates="extraction")
