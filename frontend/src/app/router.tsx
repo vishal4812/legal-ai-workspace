@@ -4,6 +4,7 @@ import { ProtectedRoute } from "../features/auth";
 import { CaseDetailPage } from "../pages/CaseDetailPage";
 import { CasesPage } from "../pages/CasesPage";
 import { DashboardPage } from "../pages/DashboardPage";
+import { DocumentVaultPage } from "../pages/DocumentVaultPage";
 import { LoginPage } from "../pages/LoginPage";
 import { NotFoundPage } from "../pages/NotFoundPage";
 import { RegisterPage } from "../pages/RegisterPage";
@@ -22,6 +23,10 @@ export const appRoutes: RouteObject[] = [
       { path: "/workspaces/:workspaceId", element: <WorkspaceDetailPage /> },
       { path: "/workspaces/:workspaceId/cases", element: <CasesPage /> },
       { path: "/workspaces/:workspaceId/cases/:caseId", element: <CaseDetailPage /> },
+      {
+        path: "/workspaces/:workspaceId/cases/:caseId/documents",
+        element: <DocumentVaultPage />,
+      },
     ],
   },
   { path: "*", element: <NotFoundPage /> },

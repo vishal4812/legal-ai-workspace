@@ -5,6 +5,8 @@ const statusMessages: Record<number, string> = {
   403: "You do not have permission to perform this action.",
   404: "The requested workspace or case was not found.",
   409: "That change conflicts with the current workspace state.",
+  413: "The selected document is too large.",
+  415: "Only valid PDF and DOCX documents are supported.",
   422: "Please check the submitted information.",
 };
 

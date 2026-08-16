@@ -49,6 +49,10 @@ export function CaseDetailPage() {
       <AppHeader />
       <div className="mx-auto max-w-4xl px-6 py-10">
         <Link className="text-sm font-semibold text-brass underline" to={`/workspaces/${workspaceId}/cases`}>← All cases</Link>
+        <Link
+          className="ml-5 text-sm font-semibold text-brass underline"
+          to={`/workspaces/${workspaceId}/cases/${caseId}/documents`}
+        >Document Vault</Link>
         <div className="mt-5 flex items-start justify-between gap-4">
           <div><h1 className="text-4xl font-bold">{legalCase.data.name}</h1><p className="mt-2 text-ink/60">{legalCase.data.reference_number ?? "No reference number"}</p></div>
           <span className="rounded-full bg-white px-3 py-1 text-xs font-bold">{legalCase.data.status}</span>

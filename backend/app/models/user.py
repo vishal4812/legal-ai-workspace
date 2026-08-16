@@ -11,6 +11,7 @@ from app.database import Base
 
 if TYPE_CHECKING:
     from app.models.case import Case
+    from app.models.document import Document
     from app.models.refresh_token import RefreshToken
     from app.models.workspace import Workspace
     from app.models.workspace_member import WorkspaceMember
@@ -58,4 +59,7 @@ class User(Base):
     )
     created_cases: Mapped[list["Case"]] = relationship(
         back_populates="creator", foreign_keys="Case.created_by"
+    )
+    created_documents: Mapped[list["Document"]] = relationship(
+        back_populates="creator", foreign_keys="Document.created_by"
     )

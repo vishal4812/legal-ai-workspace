@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 import pytest_asyncio
 from fastapi import FastAPI
@@ -18,7 +19,7 @@ import app.models  # noqa: F401
 
 
 @pytest_asyncio.fixture
-async def test_settings() -> Settings:
+async def test_settings(tmp_path: Path) -> Settings:
     return Settings(
         database_url="sqlite+aiosqlite://",
         jwt_secret="test-secret-that-is-at-least-32-characters",
@@ -26,6 +27,7 @@ async def test_settings() -> Settings:
         jwt_access_token_expire_minutes=30,
         jwt_refresh_token_expire_days=7,
         environment="test",
+        document_storage_path=tmp_path / "documents",
     )
 
 

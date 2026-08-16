@@ -19,3 +19,11 @@ export function canCreateOrEditCases(role: WorkspaceRole): boolean {
 export function canArchiveCases(role: WorkspaceRole): boolean {
   return role === "OWNER" || role === "ADMIN";
 }
+
+export function canUploadDocuments(role: WorkspaceRole): boolean {
+  return role === "OWNER" || role === "ADMIN" || role === "MEMBER";
+}
+
+export function canArchiveDocuments(role: WorkspaceRole): boolean {
+  return role === "OWNER" || role === "ADMIN" || role === "MEMBER";
+}
