@@ -9,7 +9,11 @@ from fastapi.responses import StreamingResponse
 
 from app.database import DatabaseSession
 from app.models.workspace_member import WorkspaceRole
-from app.schemas.documents import DocumentResponse, DocumentUploadResponse
+from app.schemas.documents import (
+    DocumentExtractionResponse,
+    DocumentResponse,
+    DocumentUploadResponse,
+)
 from app.security.authorization import (
     CaseAccess,
     CaseAccessDependency,
@@ -17,6 +21,7 @@ from app.security.authorization import (
     require_case_roles,
 )
 from app.services.documents import DocumentService
+from app.services.extractions import DocumentExtractionService
 from app.storage.dependencies import DocumentStorage
 
 router = APIRouter()
@@ -109,6 +114,51 @@ async def list_documents(
 )
 async def get_document(access: DocumentAccessDependency) -> DocumentResponse:
     return DocumentResponse.model_validate(access.document)
+
+
+@router.post(
+    "/workspaces/{workspace_id}/cases/{case_id}/documents/{document_id}/extract",
+    response_model=DocumentExtractionResponse,
+    responses={
+        **ERROR_RESPONSES,
+        409: {"description": "Extraction is already pending or processing"},
+        415: {"description": "Document type is not extractable"},
+        422: {"description": "The document parser rejected the original"},
+    },
+    summary="Extract machine-readable text from an authorized document",
+)
+async def extract_document(
+    session: DatabaseSession,
+    storage: DocumentStorage,
+    access: DocumentAccessDependency,
+    _case_access: Annotated[
+        CaseAccess,
+        Depends(
+            require_case_roles(
+                WorkspaceRole.OWNER,
+                WorkspaceRole.ADMIN,
+                WorkspaceRole.MEMBER,
+            )
+        ),
+    ],
+) -> DocumentExtractionResponse:
+    extraction = await DocumentExtractionService(session, storage).extract(access)
+    return DocumentExtractionResponse.model_validate(extraction)
+
+
+@router.get(
+    "/workspaces/{workspace_id}/cases/{case_id}/documents/{document_id}/extraction",
+    response_model=DocumentExtractionResponse,
+    responses=ERROR_RESPONSES,
+    summary="Get authorized extracted text and extraction metadata",
+)
+async def get_document_extraction(
+    session: DatabaseSession,
+    storage: DocumentStorage,
+    access: DocumentAccessDependency,
+) -> DocumentExtractionResponse:
+    extraction = await DocumentExtractionService(session, storage).get(access)
+    return DocumentExtractionResponse.model_validate(extraction)
 
 
 @router.get(

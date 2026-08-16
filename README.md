@@ -1,6 +1,6 @@
 # LEGAL MASTER
 
-LEGAL MASTER is a local/private legal document workspace and the foundation for a document RAG platform. This repository now contains Phase 4: a secure, case-scoped document vault on top of JWT authentication, multi-tenant workspaces, role-based membership, and legal cases. Document text extraction, OCR, embeddings, retrieval, and chat are intentionally not implemented yet.
+LEGAL MASTER is a local/private legal document workspace and the foundation for a document RAG platform. This repository now contains Phase 5: local, deterministic PDF and DOCX text extraction on top of JWT authentication, multi-tenant workspaces, role-based membership, legal cases, and the secure case-scoped Document Vault. OCR, embeddings, retrieval, and chat are intentionally not implemented yet.
 
 ## Architecture
 
@@ -82,7 +82,7 @@ Alembic uses the same `DATABASE_URL` as the application. Apply migrations with:
 make migrate
 ```
 
-After adding or importing a SQLAlchemy model in `backend/app/models/__init__.py`, create a migration with `make migration name=create_users`. Review generated migrations before applying them. Phase 2 creates `users` and `refresh_tokens`; Phase 3 adds `workspaces`, `workspace_members`, and `cases`; Phase 4 adds `documents` and the `document_status` enum.
+After adding or importing a SQLAlchemy model in `backend/app/models/__init__.py`, create a migration with `make migration name=create_users`. Review generated migrations before applying them. Phase 2 creates `users` and `refresh_tokens`; Phase 3 adds `workspaces`, `workspace_members`, and `cases`; Phase 4 adds `documents` and the `document_status` enum; Phase 5 adds `document_extractions` and the `extraction_status` enum.
 
 ## Authentication
 
@@ -126,6 +126,23 @@ Downloads are authenticated backend streams with safe `Content-Type`, `Content-L
 
 The UI is available at `/workspaces/:workspaceId/cases/:caseId/documents`. It provides selection validation, progress, loading/error/empty states, metadata and SHA-256 display, download, and role-aware archive controls.
 
+## Document Text Extraction
+
+Phase 5 extracts text locally and synchronously through `DocumentExtractionService`. The service opens an immutable original through `StorageProvider`, selects `PDFExtractor` or `DOCXExtractor`, normalizes parser noise, and persists one current `document_extractions` row. Routes contain no parsing or direct filesystem access, so the service can later be called by a background worker without changing its domain contract.
+
+The nested extraction API is:
+
+- `POST /api/v1/workspaces/{workspace_id}/cases/{case_id}/documents/{document_id}/extract`
+- `GET /api/v1/workspaces/{workspace_id}/cases/{case_id}/documents/{document_id}/extraction`
+
+OWNER, ADMIN, and MEMBER can trigger and view extraction. VIEWER can view an existing extraction but cannot trigger or retry it. The existing workspace/case/document authorization chain returns 404 for non-members and ID mismatches.
+
+Each document has at most one extraction with a `PENDING -> PROCESSING -> COMPLETED` or `PROCESSING -> FAILED` lifecycle. A completed extraction is returned idempotently; a failed extraction can be retried in the same row; pending or processing work returns 409. Failures persist a bounded safe code/message and API responses never expose parser traces, storage keys, or filesystem paths. `source_sha256_hash` ties the result to the immutable Phase 4 original.
+
+PyMuPDF extracts PDFs page-by-page. Persisted PDF text uses deterministic `[Page N]` markers, and `page_count` records the actual PDF page count. A completely textless or image-only PDF completes with empty text and zero characters so Phase 6 can identify OCR candidates. `python-docx` extracts headings/paragraphs and tables in body order; table cells use ` | ` separators and DOCX `page_count` remains null because Word pagination requires rendering.
+
+Normalization converts CRLF/CR line endings to LF, removes null characters, collapses horizontal whitespace and excessive blank lines, and trims line edges. It does not summarize, paraphrase, spell-correct, deduplicate, or otherwise alter legal wording, punctuation, or numbers. Extracted text is read-only in the UI at `/workspaces/:workspaceId/cases/:caseId/documents/:documentId/extraction`.
+
 ## Workspace, case, and document retention
 
 Workspace deletion is a soft delete: `is_active` becomes false while ownership and memberships remain available to authorized users. Case deletion is also a soft delete and sets both `is_active = false` and `status = ARCHIVED`. Archived records remain readable to workspace members so later legal-retention and audit features can build on stable historical relationships. Foreign keys use restrictive deletion rather than cascading through legal domain data.
@@ -138,6 +155,6 @@ The workspace and case UI is available at `/workspaces`, `/workspaces/:workspace
 
 ## Roadmap
 
-Document text extraction and RAG are not part of Phase 4.
+OCR is not implemented in Phase 5. RAG is not implemented in Phase 5.
 
-Later phases may add extraction, OCR, chunks/embeddings, Qdrant indexing, retrieval, local LLM integration, citations, analysis modes, bitemporal logic, and editing. Phase 4 preserves only the untouched original binary and its integrity metadata.
+Later phases may add OCR, chunks/embeddings, Qdrant indexing, retrieval, local LLM integration, citations, analysis modes, bitemporal logic, and editing. Phase 5 only produces faithful machine-readable text and metadata while preserving the untouched original binary and its integrity metadata.

@@ -13,6 +13,7 @@ from app.models.user import utc_now
 
 if TYPE_CHECKING:
     from app.models.case import Case
+    from app.models.document_extraction import DocumentExtraction
     from app.models.user import User
 
 
@@ -60,4 +61,7 @@ class Document(Base):
     case: Mapped["Case"] = relationship(back_populates="documents")
     creator: Mapped["User"] = relationship(
         back_populates="created_documents", foreign_keys=[created_by]
+    )
+    extraction: Mapped["DocumentExtraction | None"] = relationship(
+        back_populates="document", uselist=False
     )

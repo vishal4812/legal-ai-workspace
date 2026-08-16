@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 
 import { AuthContext, type AuthContextValue } from "../features/auth/AuthContext";
 import { caseApi } from "../features/cases";
-import { documentApi } from "../features/documents";
+import { documentApi, extractionApi } from "../features/documents";
 import { workspaceApi } from "../features/workspaces";
 import { DocumentVaultPage } from "./DocumentVaultPage";
 
@@ -26,6 +26,14 @@ vi.mock("../features/documents/documentApi", () => ({
     upload: vi.fn(),
     download: vi.fn(),
     archive: vi.fn(),
+  },
+}));
+
+vi.mock("../features/documents/extractionApi", () => ({
+  extractionApi: {
+    get: vi.fn(),
+    getOrNull: vi.fn(),
+    extract: vi.fn(),
   },
 }));
 
@@ -111,6 +119,7 @@ beforeEach(() => {
   vi.mocked(workspaceApi.get).mockResolvedValue(workspace);
   vi.mocked(caseApi.get).mockResolvedValue(legalCase);
   vi.mocked(documentApi.list).mockResolvedValue([document]);
+  vi.mocked(extractionApi.getOrNull).mockResolvedValue(null);
 });
 
 describe("Document Vault page", () => {
@@ -120,6 +129,8 @@ describe("Document Vault page", () => {
     expect(await screen.findByRole("heading", { name: legalCase.name })).toBeInTheDocument();
     expect(screen.getByText(document.original_filename)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Download" })).toBeInTheDocument();
+    expect(await screen.findByText("Text: Not extracted")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Extract text" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Upload document" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Archive" })).not.toBeInTheDocument();
   });
@@ -133,6 +144,33 @@ describe("Document Vault page", () => {
 
     expect(await screen.findByRole("heading", { name: "Upload document" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Archive" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Extract text" })).toBeInTheDocument();
+  });
+
+  test("shows completed extraction status and detail link", async () => {
+    vi.mocked(extractionApi.getOrNull).mockResolvedValue({
+      id: "extraction-1",
+      document_id: document.id,
+      extractor_type: "pymupdf",
+      extractor_version: "1.28.2",
+      status: "COMPLETED",
+      text_content: "[Page 1]\n\nAgreement",
+      character_count: 28,
+      page_count: 1,
+      source_sha256_hash: document.sha256_hash,
+      extracted_at: "2026-08-09T01:00:00Z",
+      error_code: null,
+      error_message: null,
+      created_at: "2026-08-09T01:00:00Z",
+      updated_at: "2026-08-09T01:00:00Z",
+    });
+    render(<DocumentVaultPage />, { wrapper: Providers });
+
+    expect(await screen.findByText("Text: Extracted")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "View extraction" })).toHaveAttribute(
+      "href",
+      "/workspaces/workspace-1/cases/case-1/documents/document-1/extraction",
+    );
   });
 
   test("client validation rejects an unsupported extension before upload", async () => {

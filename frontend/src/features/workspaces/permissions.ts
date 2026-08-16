@@ -27,3 +27,7 @@ export function canUploadDocuments(role: WorkspaceRole): boolean {
 export function canArchiveDocuments(role: WorkspaceRole): boolean {
   return role === "OWNER" || role === "ADMIN" || role === "MEMBER";
 }
+
+export function canExtractDocumentText(role: WorkspaceRole): boolean {
+  return role === "OWNER" || role === "ADMIN" || role === "MEMBER";
+}
