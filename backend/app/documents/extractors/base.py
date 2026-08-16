@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
-from typing import BinaryIO
+from dataclasses import dataclass, field
+from typing import Any, BinaryIO
 
 
 @dataclass(frozen=True, slots=True)
@@ -15,15 +15,27 @@ class ExtractedPage:
 class ExtractedDocument:
     pages: tuple[ExtractedPage, ...]
     page_count: int | None
+    extractor_type: str | None = None
+    extractor_version: str | None = None
+    parser_metadata: dict[str, Any] = field(default_factory=dict)
 
 
 class ExtractionError(Exception):
     """A parser failure that is safe for the service layer to categorize."""
 
-    def __init__(self, code: str, message: str) -> None:
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        *,
+        page_count: int | None = None,
+        parser_metadata: dict[str, Any] | None = None,
+    ) -> None:
         super().__init__(message)
         self.code = code
         self.safe_message = message
+        self.page_count = page_count
+        self.parser_metadata = parser_metadata or {}
 
 
 class DocumentExtractor(ABC):

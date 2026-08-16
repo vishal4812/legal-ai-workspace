@@ -27,6 +27,38 @@ def make_pdf(*pages: str | None, draw_image_shape: bool = False) -> bytes:
     return content
 
 
+def make_scanned_pdf(*pages: str) -> bytes:
+    """Create a small deterministic image-only PDF without external fonts."""
+
+    scanned = pymupdf.open()
+    for text in pages:
+        source = pymupdf.open()
+        source_page = source.new_page()
+        source_page.insert_textbox(
+            pymupdf.Rect(72, 100, 523, 742),
+            text,
+            fontsize=24,
+            lineheight=1.4,
+        )
+        pixmap = source_page.get_pixmap(dpi=200, colorspace=pymupdf.csRGB, alpha=False)
+        target_page = scanned.new_page(width=source_page.rect.width, height=source_page.rect.height)
+        target_page.insert_image(target_page.rect, stream=pixmap.tobytes("png"))
+        source.close()
+    content = scanned.tobytes(garbage=4, deflate=True)
+    scanned.close()
+    return content
+
+
+def make_mixed_pdf(direct_text: str, scanned_text: str) -> bytes:
+    mixed = pymupdf.open(stream=make_pdf(direct_text), filetype="pdf")
+    scanned = pymupdf.open(stream=make_scanned_pdf(scanned_text), filetype="pdf")
+    mixed.insert_pdf(scanned)
+    content = mixed.tobytes()
+    scanned.close()
+    mixed.close()
+    return content
+
+
 def make_docx(
     *,
     heading: str | None = None,
@@ -96,7 +128,9 @@ async def create_document_context(
     user, headers = await create_account(client, email)
     workspace = await create_workspace(client, headers)
     legal_case = await create_case(client, workspace["id"], headers)
-    original = content if content is not None else make_pdf("Agreement text")
+    original = content if content is not None else make_pdf(
+        "This Agreement contains sufficient selectable legal text for direct extraction."
+    )
     response = await client.post(
         f"/api/v1/workspaces/{workspace['id']}/cases/{legal_case['id']}/documents",
         headers=headers,

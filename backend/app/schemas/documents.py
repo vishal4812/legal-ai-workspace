@@ -46,6 +46,7 @@ class DocumentExtractionResponse(BaseModel):
     text_content: str
     character_count: int
     page_count: int | None
+    parser_metadata: dict[str, object]
     source_sha256_hash: str
     extracted_at: datetime | None
     error_code: str | None

@@ -12,6 +12,7 @@ from app.api.v1.routes.health import router as health_router
 from app.config import Settings, get_settings
 from app.database import Database
 from app.logging import configure_logging
+from app.documents.ocr.tesseract import TesseractOCRProvider
 from app.services.errors import DomainError
 from app.storage.local import LocalStorageProvider
 
@@ -37,6 +38,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.state.settings = resolved_settings
     application.state.document_storage = LocalStorageProvider(
         resolved_settings.document_storage_path
+    )
+    application.state.ocr_provider = TesseractOCRProvider(
+        resolved_settings.ocr_lang,
+        resolved_settings.ocr_max_concurrency,
     )
     application.add_middleware(
         CORSMiddleware,

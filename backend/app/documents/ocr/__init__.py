@@ -1,3 +1,4 @@
-from app.documents.ocr.base import OCRProvider
+from app.documents.ocr.base import OCRError, OCRProvider, OCRRuntimeInfo
+from app.documents.ocr.tesseract import TesseractOCRProvider
 
-__all__ = ["OCRProvider"]
+__all__ = ["OCRError", "OCRProvider", "OCRRuntimeInfo", "TesseractOCRProvider"]

@@ -6,6 +6,13 @@ import { documentApi, extractionApi } from "../features/documents";
 import { canExtractDocumentText, workspaceApi } from "../features/workspaces";
 import { apiErrorMessage } from "../utils/apiError";
 
+function extractionMethodLabel(metadata: Record<string, unknown>): string {
+  if (metadata.method === "ocr") return "OCR (Tesseract)";
+  if (metadata.method === "mixed") return "Mixed: Direct Text + OCR (Tesseract)";
+  if (metadata.method === "direct_text") return "Direct Text";
+  return "Pending detection";
+}
+
 export function DocumentExtractionPage() {
   const { workspaceId = "", caseId = "", documentId = "" } = useParams();
   const queryClient = useQueryClient();
@@ -112,6 +119,10 @@ export function DocumentExtractionPage() {
                       <dd>{trigger.isPending ? "PROCESSING" : result.status}</dd>
                     </div>
                     <div>
+                      <dt className="font-semibold text-ink/60">Extraction method</dt>
+                      <dd>{extractionMethodLabel(result.parser_metadata)}</dd>
+                    </div>
+                    <div>
                       <dt className="font-semibold text-ink/60">Extractor</dt>
                       <dd>{result.extractor_type} {result.extractor_version}</dd>
                     </div>
@@ -159,7 +170,7 @@ export function DocumentExtractionPage() {
                   </pre>
                 ) : (
                   <p className="mt-4 rounded-lg bg-amber-50 p-4 text-amber-900">
-                    No machine-readable text was found. OCR is not implemented in Phase 5.
+                    No machine-readable text was found after extraction.
                   </p>
                 )}
               </section>

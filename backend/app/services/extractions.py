@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
+from time import monotonic
 from uuid import UUID
 
 from fastapi import status
@@ -72,6 +73,7 @@ class DocumentExtractionService:
                     text_content="",
                     character_count=0,
                     page_count=None,
+                    parser_metadata={},
                     source_sha256_hash=document.sha256_hash,
                 )
                 await self._repository.create(extraction)
@@ -95,15 +97,21 @@ class DocumentExtractionService:
                 "Unable to start document extraction",
             ) from exc
 
+        started_at = monotonic()
         try:
             with self._storage.open(document.storage_key) as source:
                 extracted = await extractor.extract(source)
             text_content = render_extracted_text(extracted)
 
+            extraction.extractor_type = extracted.extractor_type or extractor.extractor_type
+            extraction.extractor_version = (
+                extracted.extractor_version or extractor.extractor_version
+            )
             extraction.status = ExtractionStatus.COMPLETED
             extraction.text_content = text_content
             extraction.character_count = len(text_content)
             extraction.page_count = extracted.page_count
+            extraction.parser_metadata = extracted.parser_metadata
             extraction.source_sha256_hash = document.sha256_hash
             extraction.extracted_at = utc_now()
             extraction.error_code = None
@@ -112,11 +120,15 @@ class DocumentExtractionService:
             await self._session.commit()
             await self._session.refresh(extraction)
             LOGGER.info(
-                "document_extraction_succeeded document_id=%s extractor=%s character_count=%s page_count=%s",
+                "document_extraction_succeeded document_id=%s extraction_id=%s status=COMPLETED "
+                "method=%s extractor=%s page_count=%s ocr_page_count=%s duration_seconds=%.3f",
                 document.id,
-                extractor.extractor_type,
-                extraction.character_count,
+                extraction.id,
+                extraction.parser_metadata.get("method", "unknown"),
+                extraction.extractor_type,
                 extraction.page_count,
+                len(extraction.parser_metadata.get("ocr_pages", [])),
+                monotonic() - started_at,
             )
             return extraction
         except ExtractionError as exc:
@@ -125,6 +137,9 @@ class DocumentExtractionService:
                 exc.code,
                 exc.safe_message,
                 type(exc.__cause__).__name__ if exc.__cause__ else type(exc).__name__,
+                page_count=exc.page_count,
+                parser_metadata=exc.parser_metadata,
+                duration_seconds=monotonic() - started_at,
             )
             raise DomainError(
                 status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -136,6 +151,7 @@ class DocumentExtractionService:
                 "SOURCE_UNAVAILABLE",
                 "The original document is unavailable",
                 type(exc).__name__,
+                duration_seconds=monotonic() - started_at,
             )
             raise DomainError(status.HTTP_404_NOT_FOUND, "Document file not found") from exc
         except DomainError:
@@ -146,6 +162,7 @@ class DocumentExtractionService:
                 "EXTRACTION_ERROR",
                 "The document could not be extracted",
                 type(exc).__name__,
+                duration_seconds=monotonic() - started_at,
             )
             raise DomainError(
                 status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -176,6 +193,7 @@ class DocumentExtractionService:
         extraction.text_content = ""
         extraction.character_count = 0
         extraction.page_count = None
+        extraction.parser_metadata = {}
         extraction.source_sha256_hash = source_sha256_hash
         extraction.extracted_at = None
         extraction.error_code = None
@@ -187,6 +205,10 @@ class DocumentExtractionService:
         error_code: str,
         error_message: str,
         category: str,
+        *,
+        page_count: int | None = None,
+        parser_metadata: dict[str, object] | None = None,
+        duration_seconds: float = 0.0,
     ) -> None:
         await self._session.rollback()
         try:
@@ -195,7 +217,8 @@ class DocumentExtractionService:
                 extraction.status = ExtractionStatus.FAILED
                 extraction.text_content = ""
                 extraction.character_count = 0
-                extraction.page_count = None
+                extraction.page_count = page_count
+                extraction.parser_metadata = parser_metadata or {}
                 extraction.extracted_at = None
                 extraction.error_code = error_code
                 extraction.error_message = error_message
@@ -209,8 +232,13 @@ class DocumentExtractionService:
                 type(persistence_error).__name__,
             )
         LOGGER.error(
-            "document_extraction_failed document_id=%s error_code=%s category=%s",
+            "document_extraction_failed document_id=%s status=FAILED error_code=%s "
+            "method=%s page_count=%s ocr_page_count=%s duration_seconds=%.3f category=%s",
             document_id,
             error_code,
+            (parser_metadata or {}).get("method", "unknown"),
+            page_count,
+            len((parser_metadata or {}).get("ocr_pages", [])),
+            duration_seconds,
             category,
         )

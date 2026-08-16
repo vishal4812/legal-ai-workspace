@@ -29,6 +29,7 @@ export interface DocumentExtraction {
   text_content: string;
   character_count: number;
   page_count: number | null;
+  parser_metadata: Record<string, unknown>;
   source_sha256_hash: string;
   extracted_at: string | null;
   error_code: string | null;

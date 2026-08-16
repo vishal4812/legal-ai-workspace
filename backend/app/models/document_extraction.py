@@ -5,7 +5,7 @@ from enum import Enum
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
-from sqlalchemy import DateTime, Enum as SqlEnum, ForeignKey, Integer, String, Text, func
+from sqlalchemy import JSON, DateTime, Enum as SqlEnum, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -44,6 +44,12 @@ class DocumentExtraction(Base):
     text_content: Mapped[str] = mapped_column(Text(), default="", server_default="", nullable=False)
     character_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     page_count: Mapped[int | None] = mapped_column(Integer)
+    parser_metadata: Mapped[dict[str, object]] = mapped_column(
+        JSON,
+        default=dict,
+        server_default="{}",
+        nullable=False,
+    )
     source_sha256_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     extracted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     error_code: Mapped[str | None] = mapped_column(String(100))

@@ -12,10 +12,14 @@ const queryClient = new QueryClient({
   },
 });
 
+function clearQueryCache() {
+  queryClient.clear();
+}
+
 export function AppProviders({ children }: PropsWithChildren) {
   return (
     <QueryClientProvider client={queryClient}>
-      <AuthProvider>{children}</AuthProvider>
+      <AuthProvider onSessionCleared={clearQueryCache}>{children}</AuthProvider>
     </QueryClientProvider>
   );
 }

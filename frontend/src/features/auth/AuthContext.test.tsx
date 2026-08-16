@@ -114,4 +114,22 @@ describe("authentication state", () => {
     await waitFor(() => expect(screen.getByText("anonymous")).toBeInTheDocument());
     expect(authApi.logout).toHaveBeenCalledOnce();
   });
+
+  test("logout clears tenant-scoped query state before another user signs in", async () => {
+    const onSessionCleared = vi.fn();
+    vi.mocked(authApi.restoreSession).mockResolvedValue(user);
+    vi.mocked(authApi.logout).mockResolvedValue();
+    render(
+      <MemoryRouter>
+        <AuthProvider onSessionCleared={onSessionCleared}>
+          <AuthHarness />
+        </AuthProvider>
+      </MemoryRouter>,
+    );
+    await screen.findByText(user.email);
+
+    fireEvent.click(screen.getByRole("button", { name: "Log out" }));
+
+    await waitFor(() => expect(onSessionCleared).toHaveBeenCalledOnce());
+  });
 });
