@@ -81,6 +81,9 @@ async def test_pdf_api_persists_metadata_pages_integrity_and_is_idempotent(
     assert extraction["extractor_version"] == version("PyMuPDF")
     assert extraction["status"] == "COMPLETED"
     assert extraction["page_count"] == 2
+    assert extraction["parser_metadata"]["method"] == "direct_text"
+    assert extraction["parser_metadata"]["direct_text_pages"] == [1, 2]
+    assert extraction["parser_metadata"]["ocr_pages"] == []
     assert extraction["text_content"].startswith("[Page 1]\n\n")
     assert "\n\n[Page 2]\n\n" in extraction["text_content"]
     assert extraction["character_count"] == len(extraction["text_content"])
@@ -135,6 +138,8 @@ async def test_docx_api_preserves_structure_unicode_and_has_no_page_count(
     assert extraction["extractor_type"] == "python-docx"
     assert extraction["extractor_version"] == version("python-docx")
     assert extraction["page_count"] is None
+    assert extraction["parser_metadata"]["method"] == "direct_text"
+    assert extraction["parser_metadata"]["engine"] == "python-docx"
     assert extraction["text_content"] == (
         "Agreement 合同\n\nFirst paragraph.\n\nAmount ₹ 5,000; payable.\n\n"
         "Party | Role\nABC | Buyer\nXYZ | Seller"
@@ -147,7 +152,7 @@ async def test_docx_api_preserves_structure_unicode_and_has_no_page_count(
     [make_pdf(None), make_pdf(None, draw_image_shape=True)],
     ids=["empty-pdf", "scanned-image-only-pdf"],
 )
-async def test_textless_pdf_completes_without_ocr(
+async def test_textless_pdf_completes_after_ocr_fallback(
     client: AsyncClient,
     original: bytes,
 ) -> None:
@@ -163,12 +168,15 @@ async def test_textless_pdf_completes_without_ocr(
     assert extraction["text_content"] == ""
     assert extraction["character_count"] == 0
     assert extraction["page_count"] == 1
+    assert extraction["extractor_type"] == "tesseract"
+    assert extraction["parser_metadata"]["method"] == "ocr"
+    assert extraction["parser_metadata"]["ocr_pages"] == [1]
 
 
 @pytest.mark.parametrize(
     ("filename", "mime_type", "content", "expected_code"),
     [
-        ("broken.pdf", PDF_MIME, b"%PDF-corrupted", "PDF_PARSE_ERROR"),
+        ("broken.pdf", PDF_MIME, b"%PDF-corrupted", "DOCUMENT_CORRUPTED"),
         ("broken.docx", DOCX_MIME, make_malformed_docx(), "DOCX_PARSE_ERROR"),
     ],
 )
@@ -209,7 +217,7 @@ async def test_failed_extraction_retries_same_record_and_completes(
     _, workspace, legal_case, document, headers, _ = await create_document_context(
         client,
         "retry-extraction@example.com",
-        content=make_pdf("Retry succeeds."),
+        content=make_pdf("Retry succeeds with sufficient selectable legal agreement text."),
     )
     trigger_url, _ = extraction_urls(workspace, legal_case, document)
     original_extract = PDFExtractor.extract
@@ -235,7 +243,7 @@ async def test_failed_extraction_retries_same_record_and_completes(
     retried = await client.post(trigger_url, headers=headers)
     assert retried.status_code == 200, retried.text
     assert retried.json()["status"] == "COMPLETED"
-    assert "Retry succeeds." in retried.json()["text_content"]
+    assert "Retry succeeds with sufficient selectable legal agreement text." in retried.json()["text_content"]
     assert UUID(retried.json()["id"]) == failed_id
     assert await extraction_count(session) == 1
 
@@ -252,7 +260,7 @@ async def test_extraction_role_matrix(
     owner, workspace, legal_case, document, owner_headers, _ = await create_document_context(
         client,
         f"role-owner-{role.casefold()}@example.com",
-        content=make_pdf("Authorized text."),
+        content=make_pdf("Authorized selectable agreement text remains available to workspace members."),
     )
     del owner
     if role == "OWNER":
@@ -271,7 +279,9 @@ async def test_extraction_role_matrix(
     assert triggered.status_code == post_status
     viewed = await client.get(get_url, headers=actor_headers)
     assert viewed.status_code == 200
-    assert viewed.json()["text_content"].endswith("Authorized text.")
+    assert viewed.json()["text_content"].endswith(
+        "Authorized selectable agreement text remains available to workspace members."
+    )
 
 
 async def test_non_member_cross_tenant_and_id_mismatches_return_404(
@@ -362,7 +372,7 @@ async def test_completion_persistence_failure_is_controlled_and_original_is_inta
     _, workspace, legal_case, document, headers, original = await create_document_context(
         client,
         "extraction-db-failure@example.com",
-        content=make_pdf("Persistence failure fixture."),
+        content=make_pdf("Persistence failure fixture contains sufficient selectable legal text."),
     )
     record = await session.scalar(select(Document).where(Document.id == UUID(document["id"])))
     assert record is not None

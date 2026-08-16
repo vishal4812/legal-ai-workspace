@@ -32,7 +32,11 @@ function authenticationMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Authentication request failed";
 }
 
-export function AuthProvider({ children }: PropsWithChildren) {
+interface AuthProviderProps extends PropsWithChildren {
+  onSessionCleared?: () => void;
+}
+
+export function AuthProvider({ children, onSessionCleared }: AuthProviderProps) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -40,7 +44,8 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const clearSession = useCallback(() => {
     setAccessToken(null);
     setUser(null);
-  }, []);
+    onSessionCleared?.();
+  }, [onSessionCleared]);
 
   useEffect(() => {
     setAuthFailureHandler(clearSession);

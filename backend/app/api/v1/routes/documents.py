@@ -8,6 +8,8 @@ from fastapi import APIRouter, Depends, File, Request, UploadFile, status
 from fastapi.responses import StreamingResponse
 
 from app.database import DatabaseSession
+from app.documents.extractors.docx import DOCXExtractor
+from app.documents.extractors.pdf import PDFExtractor
 from app.models.workspace_member import WorkspaceRole
 from app.schemas.documents import (
     DocumentExtractionResponse,
@@ -128,6 +130,7 @@ async def get_document(access: DocumentAccessDependency) -> DocumentResponse:
     summary="Extract machine-readable text from an authorized document",
 )
 async def extract_document(
+    request: Request,
     session: DatabaseSession,
     storage: DocumentStorage,
     access: DocumentAccessDependency,
@@ -142,7 +145,21 @@ async def extract_document(
         ),
     ],
 ) -> DocumentExtractionResponse:
-    extraction = await DocumentExtractionService(session, storage).extract(access)
+    settings = request.app.state.settings
+    pdf_extractor = PDFExtractor(
+        ocr_provider=request.app.state.ocr_provider,
+        ocr_enabled=settings.ocr_enabled,
+        ocr_language=settings.ocr_lang,
+        ocr_dpi=settings.ocr_dpi,
+        ocr_max_pages=settings.ocr_max_pages,
+        ocr_timeout_seconds=settings.ocr_timeout_seconds,
+        ocr_max_image_pixels=settings.ocr_max_image_pixels,
+    )
+    extraction = await DocumentExtractionService(
+        session,
+        storage,
+        extractors=(pdf_extractor, DOCXExtractor()),
+    ).extract(access)
     return DocumentExtractionResponse.model_validate(extraction)
 
 

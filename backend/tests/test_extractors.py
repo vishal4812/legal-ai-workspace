@@ -39,17 +39,18 @@ async def test_pdf_extractor_preserves_pages_unicode_numbers_and_legal_punctuati
     [make_pdf(None), make_pdf(None, draw_image_shape=True)],
     ids=["empty", "image-only"],
 )
-async def test_pdf_extractor_completes_with_empty_text(content: bytes) -> None:
-    result = await PDFExtractor().extract(io.BytesIO(content))
+async def test_pdf_extractor_requires_enabled_ocr_for_textless_pages(content: bytes) -> None:
+    with pytest.raises(ExtractionError) as error:
+        await PDFExtractor().extract(io.BytesIO(content))
 
-    assert result.page_count == 1
-    assert render_extracted_text(result) == ""
+    assert error.value.code == "OCR_DISABLED"
+    assert error.value.page_count == 1
 
 
 async def test_pdf_extractor_controls_malformed_input() -> None:
     with pytest.raises(ExtractionError) as error:
         await PDFExtractor().extract(io.BytesIO(b"%PDF-corrupted"))
-    assert error.value.code == "PDF_PARSE_ERROR"
+    assert error.value.code == "DOCUMENT_CORRUPTED"
     assert "path" not in error.value.safe_message.casefold()
 
 

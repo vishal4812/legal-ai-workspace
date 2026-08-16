@@ -157,6 +157,12 @@ describe("Document Vault page", () => {
       text_content: "[Page 1]\n\nAgreement",
       character_count: 28,
       page_count: 1,
+      parser_metadata: {
+        method: "direct_text",
+        engine: "pymupdf",
+        direct_text_pages: [1],
+        ocr_pages: [],
+      },
       source_sha256_hash: document.sha256_hash,
       extracted_at: "2026-08-09T01:00:00Z",
       error_code: null,

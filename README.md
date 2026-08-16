@@ -1,6 +1,6 @@
 # LEGAL MASTER
 
-LEGAL MASTER is a local/private legal document workspace and the foundation for a document RAG platform. This repository now contains Phase 5: local, deterministic PDF and DOCX text extraction on top of JWT authentication, multi-tenant workspaces, role-based membership, legal cases, and the secure case-scoped Document Vault. OCR, embeddings, retrieval, and chat are intentionally not implemented yet.
+LEGAL MASTER is a local/private legal document workspace. This repository contains Phase 6: bounded local OCR for scanned and mixed PDFs, added to deterministic PDF/DOCX extraction, JWT authentication, multi-tenant workspaces, role-based membership, legal cases, and the secure case-scoped Document Vault. Phase 6 implements local OCR only; embeddings, chunking, Qdrant indexing, RAG, LLM APIs, and chat are not implemented.
 
 ## Architecture
 
@@ -15,7 +15,7 @@ See [docs/architecture.md](docs/architecture.md) for boundaries and dependency r
 - Argon2id via pwdlib, signed access/refresh JWTs, revocable refresh sessions
 - Docker Compose, Redis 7, Qdrant
 - pytest/pytest-asyncio and Vitest/Testing Library
-- Declared for later extraction work: PyMuPDF, python-docx, pytesseract
+- PyMuPDF, python-docx, Pillow, pytesseract, and local Tesseract OCR
 
 ## Repository layout
 
@@ -33,7 +33,7 @@ Makefile
 
 - Docker Engine with Docker Compose v2
 - Make (optional; commands can be run directly)
-- For host-only development: Python 3.12+ and Node.js 20+
+- For host-only development: Python 3.12+, Node.js 20+, and Tesseract with every configured `OCR_LANG` installed
 
 ## Configure and run with Docker
 
@@ -82,7 +82,7 @@ Alembic uses the same `DATABASE_URL` as the application. Apply migrations with:
 make migrate
 ```
 
-After adding or importing a SQLAlchemy model in `backend/app/models/__init__.py`, create a migration with `make migration name=create_users`. Review generated migrations before applying them. Phase 2 creates `users` and `refresh_tokens`; Phase 3 adds `workspaces`, `workspace_members`, and `cases`; Phase 4 adds `documents` and the `document_status` enum; Phase 5 adds `document_extractions` and the `extraction_status` enum.
+After adding or importing a SQLAlchemy model in `backend/app/models/__init__.py`, create a migration with `make migration name=create_users`. Review generated migrations before applying them. Phase 2 creates `users` and `refresh_tokens`; Phase 3 adds `workspaces`, `workspace_members`, and `cases`; Phase 4 adds `documents` and the `document_status` enum; Phase 5 adds `document_extractions` and the `extraction_status` enum; Phase 6 adds structured `parser_metadata` to that same extraction row.
 
 ## Authentication
 
@@ -108,6 +108,18 @@ Pydantic validates settings at backend startup. `DATABASE_URL` and `JWT_SECRET` 
 - `DOCUMENT_MAX_SIZE_BYTES` limits each upload and defaults to `52428800` bytes (50 MiB).
 - Docker Compose mounts the named `document_storage` volume only into the backend. The frontend/nginx service cannot serve it.
 
+### Local OCR configuration
+
+- `OCR_ENABLED=true` enables the PDF fallback without affecting direct PDF or DOCX extraction when disabled/unavailable.
+- `OCR_LANG=eng` is passed exactly to Tesseract after every requested `+`-separated language is verified as installed. There is no silent language fallback.
+- `OCR_DPI=200` controls page rendering (validated from 100–400 DPI). The default balances typed legal-text accuracy and memory use.
+- `OCR_MAX_PAGES=100` limits the total pages in a PDF entering the OCR-enabled pipeline. Extraction fails rather than silently omitting pages.
+- `OCR_TIMEOUT_SECONDS=120` is one total OCR budget per document, including engine checks, queueing, rendering, and recognition.
+- `OCR_MAX_IMAGE_PIXELS=25000000` rejects unusually large rendered pages before allocating their image.
+- `OCR_MAX_CONCURRENCY=1` bounds simultaneous Tesseract processes in this synchronous MVP.
+
+The backend image installs Debian's `tesseract-ocr` package (English plus orientation/script detection in the current image). Verify a built image with `docker compose run --rm --no-deps backend tesseract --version` and `docker compose run --rm --no-deps backend tesseract --list-langs`.
+
 ## Secure Document Vault
 
 Every document belongs to exactly one case, and every request resolves the complete `User -> Membership -> Workspace -> Case -> Document` chain. Non-members, cross-tenant IDs, and workspace/case/document mismatches return 404. OWNER, ADMIN, and MEMBER can upload and archive; VIEWER can list, view metadata, and download.
@@ -126,9 +138,9 @@ Downloads are authenticated backend streams with safe `Content-Type`, `Content-L
 
 The UI is available at `/workspaces/:workspaceId/cases/:caseId/documents`. It provides selection validation, progress, loading/error/empty states, metadata and SHA-256 display, download, and role-aware archive controls.
 
-## Document Text Extraction
+## Document Text Extraction and OCR
 
-Phase 5 extracts text locally and synchronously through `DocumentExtractionService`. The service opens an immutable original through `StorageProvider`, selects `PDFExtractor` or `DOCXExtractor`, normalizes parser noise, and persists one current `document_extractions` row. Routes contain no parsing or direct filesystem access, so the service can later be called by a background worker without changing its domain contract.
+Phase 6 extracts text locally and synchronously through `DocumentExtractionService`. The service opens an immutable original through `StorageProvider`, selects `PDFExtractor` or `DOCXExtractor`, normalizes parser noise, and persists one current `document_extractions` row. Routes contain no parsing or direct filesystem access, so the service remains independently callable by a future background worker.
 
 The nested extraction API is:
 
@@ -139,7 +151,15 @@ OWNER, ADMIN, and MEMBER can trigger and view extraction. VIEWER can view an exi
 
 Each document has at most one extraction with a `PENDING -> PROCESSING -> COMPLETED` or `PROCESSING -> FAILED` lifecycle. A completed extraction is returned idempotently; a failed extraction can be retried in the same row; pending or processing work returns 409. Failures persist a bounded safe code/message and API responses never expose parser traces, storage keys, or filesystem paths. `source_sha256_hash` ties the result to the immutable Phase 4 original.
 
-PyMuPDF extracts PDFs page-by-page. Persisted PDF text uses deterministic `[Page N]` markers, and `page_count` records the actual PDF page count. A completely textless or image-only PDF completes with empty text and zero characters so Phase 6 can identify OCR candidates. `python-docx` extracts headings/paragraphs and tables in body order; table cells use ` | ` separators and DOCX `page_count` remains null because Word pagination requires rendering.
+PyMuPDF first extracts each PDF page. A page avoids OCR only when its normalized parser output has at least 20 non-whitespace characters, 10 alphabetic characters, a 90% printable-character ratio, and a 50% alphanumeric-character ratio. This documented deterministic heuristic rejects empty pages, isolated page numbers/headers, and obvious parser noise without interpreting legal meaning.
+
+Only insufficient pages are rendered, one at a time, at `OCR_DPI` and sent as in-memory RGB images through `OCRProvider -> TesseractOCRProvider`. Normal PDFs remain direct-only; image PDFs use OCR; mixed PDFs retain direct text on sufficient pages and OCR only scanned/insufficient pages. Page images are released before the next page and are never published or exposed. Persisted PDF text uses deterministic `[Page N]` markers, and `page_count` always records the actual PDF page count, including mixed documents. `python-docx` remains direct-only; DOCX is never rendered or OCRed.
+
+For completed results, `parser_metadata.method` is `direct_text`, `ocr`, or `mixed`. PDF metadata records the actual engine/version, language and DPI when OCR runs, plus one-based `direct_text_pages` and `ocr_pages`. A page-limit failure uses `undetermined` because it is rejected before page content is inspected. OCR-only results use extractor type `tesseract`; mixed results use `pymupdf+tesseract`. Versions are read from installed packages/processes rather than fabricated.
+
+OCR uses the existing `PENDING -> PROCESSING -> COMPLETED` or `PROCESSING -> FAILED` lifecycle. Completed results remain idempotent, failed OCR retries reset and reuse the same row, and pending/processing work conflicts. An OCR page-limit failure never creates a partial completed result. The original PDF is opened read-only: its object bytes, storage key, document metadata, and SHA-256 are not changed.
+
+Stable OCR-related failure codes are `OCR_DISABLED`, `OCR_UNAVAILABLE`, `OCR_LANGUAGE_UNAVAILABLE`, `OCR_TIMEOUT`, `OCR_PAGE_LIMIT_EXCEEDED`, `OCR_IMAGE_LIMIT_EXCEEDED`, `OCR_RENDER_FAILED`, and `OCR_PROCESSING_FAILED`. Corrupt PDFs use `DOCUMENT_CORRUPTED`; storage and unexpected extraction failures retain the existing bounded codes. Only safe messages are persisted/returned—never parser output, command lines, storage keys, paths, document contents, or stack traces.
 
 Normalization converts CRLF/CR line endings to LF, removes null characters, collapses horizontal whitespace and excessive blank lines, and trims line edges. It does not summarize, paraphrase, spell-correct, deduplicate, or otherwise alter legal wording, punctuation, or numbers. Extracted text is read-only in the UI at `/workspaces/:workspaceId/cases/:caseId/documents/:documentId/extraction`.
 
@@ -153,8 +173,6 @@ Document DELETE is an archive operation: it sets `is_active=false`. The metadata
 
 The workspace and case UI is available at `/workspaces`, `/workspaces/:workspaceId`, `/workspaces/:workspaceId/cases`, and `/workspaces/:workspaceId/cases/:caseId`.
 
-## Roadmap
+## Phase boundary
 
-OCR is not implemented in Phase 5. RAG is not implemented in Phase 5.
-
-Later phases may add OCR, chunks/embeddings, Qdrant indexing, retrieval, local LLM integration, citations, analysis modes, bitemporal logic, and editing. Phase 5 only produces faithful machine-readable text and metadata while preserving the untouched original binary and its integrity metadata.
+Phase 6 implements local OCR only. RAG is not implemented. Embeddings are not implemented. Chunking is not implemented. Qdrant indexing is not implemented. LLM APIs and AI-generated text are not implemented. Later phases may add those capabilities, but this phase only produces faithful normalized machine-readable text and provenance while preserving the untouched original binary and integrity metadata.

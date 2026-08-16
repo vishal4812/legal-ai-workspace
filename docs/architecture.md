@@ -6,6 +6,7 @@ LEGAL MASTER uses a modular monolith to keep local development simple while pres
 React UI -> FastAPI API -> application modules -> PostgreSQL
                                      |         -> private document storage
                                      |         -> local PDF/DOCX extractors
+                                     |              `-> bounded Tesseract PDF OCR fallback
                                      |         -> Redis (future jobs)
                                      |         -> Qdrant (future vectors)
                                      `---------> provider interfaces (future AI)
@@ -53,11 +54,27 @@ Authorized DocumentAccess
         -> normalized DocumentExtraction in PostgreSQL
 ```
 
-`DocumentExtractionService` is independent of FastAPI and owns extractor selection, lifecycle transitions, normalization, persistence, idempotency, and safe failure recording. Extraction is synchronous for the Phase 5 MVP, while the service contract remains callable from a future Redis worker. The original is opened read-only through the existing provider; no service receives the storage root or arbitrary filesystem path, and extraction never modifies the object, document storage key, or Phase 4 SHA-256 metadata.
+`DocumentExtractionService` is independent of FastAPI and owns extractor selection, lifecycle transitions, normalization, persistence, idempotency, and safe failure recording. Extraction is synchronous for the Phase 6 MVP, while the service contract remains callable from a future Redis worker. The original is opened read-only through the existing provider; no service receives the storage root or arbitrary filesystem path, and extraction never modifies the object, document storage key, or Phase 4 SHA-256 metadata.
 
 `document_extractions` is a one-to-one child of `documents`. It stores actual parser package/version, `PENDING`, `PROCESSING`, `COMPLETED`, or `FAILED` status, normalized text, character/page counts, extraction time, safe failure metadata, and `source_sha256_hash`. Completed requests return the existing row. Failed rows are reset and reused on retry. Pending/processing requests conflict rather than creating duplicates.
 
-PyMuPDF returns one-based page records. After normalization, PDF text is persisted with `[Page N]` markers so page boundaries remain recoverable without introducing a chunk schema; actual PDF page count is retained. Completely textless PDFs persist empty text with zero characters and still complete. `python-docx` walks body paragraphs and tables in document order, represents each table row with ` | ` cell separators, and stores no visual page count.
+For PDFs, PyMuPDF first returns selectable text per one-based page. `is_meaningful_text` deterministically requires at least 20 non-whitespace characters, 10 alphabetic characters, 90% printable content, and 50% alphanumeric content. Sufficient pages remain direct text. Insufficient pages are OCR candidates, including pages containing only page numbers, short headers, or parser noise.
+
+```text
+PDF -> PyMuPDF page text -> sufficient page -> direct page text
+                         `-> insufficient page -> render at configured DPI
+                                                -> OCRProvider
+                                                -> TesseractOCRProvider
+                                                -> OCR page text
+```
+
+The extractor rejects a PDF whose total page count exceeds `OCR_MAX_PAGES` before scanning or rendering pages, then makes one detection pass and renders only OCR candidates sequentially. It predicts and checks rendered pixel count before allocation, retains only one RGB page image, calls Tesseract without `shell=True`, and releases the image before continuing. A shared provider semaphore bounds simultaneous OCR subprocesses. One deadline covers engine/language probes, concurrency waiting, rendering, and recognition. A limit failure fails the whole extraction rather than completing partially.
+
+After the existing safe normalization, PDF text is persisted with `[Page N]` markers in original order and actual total PDF `page_count`. Mixed documents combine direct and OCR pages without OCRing sufficient pages. `python-docx` remains direct-only, walks body paragraphs/tables in order, uses ` | ` table separators, and stores no visual page count.
+
+The focused Phase 6 migration adds only `parser_metadata` JSON to the existing one-to-one record. A completed result's `method` is `direct_text`, `ocr`, or `mixed`; a page-limit rejection is `undetermined` because it occurs before page inspection. PDF metadata includes actual engines/versions, configured language/DPI when applicable, and one-based `direct_text_pages`/`ocr_pages`. No `ocr_results`, chunk, vector, or duplicate lifecycle table exists.
+
+Tesseract availability and configured languages are checked only when a page needs OCR, so a missing OCR runtime never prevents application startup, authentication, uploads, DOCX extraction, or sufficient direct-PDF extraction. There is no language fallback. Failures persist stable codes and safe messages; raw Tesseract output, command lines, document text, storage keys, paths, and traces are not logged or returned. Completed results are idempotent, failed rows are reused on retry, and the original binary/hash remain immutable.
 
 Normalization only converts line endings, removes nulls, reduces horizontal whitespace/excess blank lines, and trims mechanical line-edge whitespace. Legal words, numbers, clauses, headings, punctuation, and repeated content are not rewritten or removed.
 
@@ -69,4 +86,4 @@ The API exposes `/health`, authentication under `/api/v1/auth`, workspaces and m
 
 The Document Vault UI lives at `/workspaces/:workspaceId/cases/:caseId/documents`; its read-only extraction view is nested at `/workspaces/:workspaceId/cases/:caseId/documents/:documentId/extraction`. Both call only authenticated APIs and never receive a storage key or filesystem path.
 
-OCR is not implemented in Phase 5. RAG is not implemented in Phase 5. OCR calls, chunking, embeddings, Qdrant indexing, LLM calls, chat, AI analysis, bitemporal logic, editing, replacement, and versioning remain intentionally absent.
+Phase 6 implements local OCR only. RAG, chunking, embeddings, Qdrant indexing, LLM APIs, chat, summarization, AI analysis, bitemporal logic, editing, replacement, and versioning remain intentionally absent.

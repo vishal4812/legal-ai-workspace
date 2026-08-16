@@ -51,6 +51,13 @@ class DOCXExtractor(DocumentExtractor):
             return ExtractedDocument(
                 pages=(ExtractedPage(page_number=1, text="\n\n".join(blocks)),),
                 page_count=None,
+                extractor_type="python-docx",
+                extractor_version=version("python-docx"),
+                parser_metadata={
+                    "method": "direct_text",
+                    "engine": "python-docx",
+                    "engine_version": version("python-docx"),
+                },
             )
         except Exception as exc:
             raise ExtractionError(

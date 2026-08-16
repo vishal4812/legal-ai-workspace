@@ -41,6 +41,17 @@ class Settings(BaseSettings):
 
     document_storage_path: Path = Path("./data/documents")
     document_max_size_bytes: int = Field(default=50 * 1024 * 1024, gt=0)
+    ocr_enabled: bool = True
+    ocr_lang: str = Field(default="eng", pattern=r"^[A-Za-z0-9_+-]+$")
+    ocr_dpi: int = Field(default=200, ge=100, le=400)
+    ocr_max_pages: int = Field(default=100, ge=1, le=1000)
+    ocr_timeout_seconds: int = Field(default=120, ge=1, le=3600)
+    ocr_max_image_pixels: int = Field(
+        default=25_000_000,
+        ge=1_000_000,
+        le=100_000_000,
+    )
+    ocr_max_concurrency: int = Field(default=1, ge=1, le=4)
     frontend_origin: str = "http://localhost:5173"
 
     @property

@@ -79,6 +79,12 @@ const completed: DocumentExtraction = {
   text_content: "[Page 1]\n\nThis Agreement is binding.",
   character_count: 37,
   page_count: 1,
+  parser_metadata: {
+    method: "direct_text",
+    engine: "pymupdf",
+    direct_text_pages: [1],
+    ocr_pages: [],
+  },
   source_sha256_hash: document.sha256_hash,
   extracted_at: "2026-08-09T01:00:00Z",
   error_code: null,
@@ -162,7 +168,7 @@ describe("Document extraction page", () => {
     expect(await screen.findByText("This Agreement is binding.", { exact: false })).toBeInTheDocument();
   });
 
-  test("completed empty extraction explains that OCR is deferred", async () => {
+  test("completed empty extraction shows a safe empty result", async () => {
     vi.mocked(extractionApi.getOrNull).mockResolvedValue({
       ...completed,
       text_content: "",
@@ -171,8 +177,48 @@ describe("Document extraction page", () => {
     render(<DocumentExtractionPage />, { wrapper: Providers });
 
     expect(
-      await screen.findByText("No machine-readable text was found. OCR is not implemented in Phase 5."),
+      await screen.findByText("No machine-readable text was found after extraction."),
     ).toBeInTheDocument();
+  });
+
+  test("completed OCR extraction identifies Tesseract and retains page markers", async () => {
+    vi.mocked(extractionApi.getOrNull).mockResolvedValue({
+      ...completed,
+      extractor_type: "tesseract",
+      extractor_version: "5.3.0",
+      text_content: "[Page 1]\n\nScanned agreement text.",
+      parser_metadata: {
+        method: "ocr",
+        engine: "tesseract",
+        engine_version: "5.3.0",
+        language: "eng",
+        dpi: 200,
+        direct_text_pages: [],
+        ocr_pages: [1],
+      },
+    });
+    render(<DocumentExtractionPage />, { wrapper: Providers });
+
+    expect(await screen.findByText("OCR (Tesseract)")).toBeInTheDocument();
+    expect(screen.getByText("Scanned agreement text.", { exact: false })).toBeInTheDocument();
+  });
+
+  test("OCR unavailable failure remains bounded and retryable", async () => {
+    vi.mocked(extractionApi.getOrNull).mockResolvedValue({
+      ...completed,
+      status: "FAILED",
+      text_content: "",
+      character_count: 0,
+      extracted_at: null,
+      parser_metadata: { method: "ocr", direct_text_pages: [], ocr_pages: [1] },
+      error_code: "OCR_UNAVAILABLE",
+      error_message: "Local OCR is unavailable on this server",
+    });
+    render(<DocumentExtractionPage />, { wrapper: Providers });
+
+    expect(await screen.findByText("OCR_UNAVAILABLE")).toBeInTheDocument();
+    expect(screen.getByText("Local OCR is unavailable on this server")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry extraction" })).toBeInTheDocument();
   });
 
   test("processing extraction is read-only and refreshes automatically", async () => {
